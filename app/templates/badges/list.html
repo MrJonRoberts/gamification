@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4">Badges</h1>
+  <a class="btn btn-sm btn-primary" href="{{ url_for('badges.create_badge') }}"><i class="fa fa-plus"></i> New</a>
+</div>
+<div class="row row-cols-1 row-cols-md-3 g-3">
+  {% for b in badges %}
+    <div class="col">
+      <div class="card h-100">
+        {% if b.icon %}<img src="{{ b.icon }}" class="card-img-top" alt="icon">{% endif %}
+        <div class="card-body">
+          <h5 class="card-title">{{ b.name }}</h5>
+          <p class="card-text small text-muted">{{ b.description }}</p>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+          <span class="badge bg-primary">{{ b.points }} pts</span>
+          <a class="btn btn-sm btn-outline-success" href="{{ url_for('badges.grant', badge_id=b.id) }}">Grant</a>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

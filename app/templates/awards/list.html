@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4">Awards</h1>
+  <a class="btn btn-sm btn-primary" href="{{ url_for('awards.create_award') }}"><i class="fa fa-plus"></i> New</a>
+</div>
+<table class="table table-sm table-striped">
+  <thead><tr><th>Name</th><th>Badges</th><th>Extra Points</th></tr></thead>
+  <tbody>
+  {% for a in awards %}
+    <tr>
+      <td>{{ a.name }}</td>
+      <td>{{ a.award_badges | length }}</td>
+      <td>{{ a.points }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4">Leaderboard (Top 20)</h1>
+<table class="table table-striped">
+  <thead><tr><th>#</th><th>Student</th><th>Points</th></tr></thead>
+  <tbody>
+  {% for row in leaderboard %}
+    <tr><td>{{ loop.index }}</td><td>{{ row[1] }} {{ row[2] }}</td><td>{{ row[3] }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

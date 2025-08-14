@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4">Students</h1>
+  <a class="btn btn-sm btn-primary" href="{{ url_for('students.create_student') }}"><i class="fa fa-plus"></i> New</a>
+</div>
+<table class="table table-sm table-striped">
+  <thead><tr><th>Code</th><th>Name</th><th>Email</th></tr></thead>
+  <tbody>
+  {% for s in students %}
+    <tr><td>{{ s.student_code }}</td><td>{{ s.last_name }}, {{ s.first_name }}</td><td>{{ s.email }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

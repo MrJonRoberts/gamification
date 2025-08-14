@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4">Register User</h1>
+<form method="post">
+  {{ form.csrf_token }}
+  <div class="row g-3">
+    <div class="col-md-3">{{ form.student_code.label }} {{ form.student_code(class="form-control") }}</div>
+    <div class="col-md-3">{{ form.email.label }} {{ form.email(class="form-control") }}</div>
+    <div class="col-md-3">{{ form.first_name.label }} {{ form.first_name(class="form-control") }}</div>
+    <div class="col-md-3">{{ form.last_name.label }} {{ form.last_name(class="form-control") }}</div>
+    <div class="col-md-3">{{ form.role.label }} {{ form.role(class="form-select") }}</div>
+    <div class="col-md-3">{{ form.password.label }} {{ form.password(class="form-control") }}</div>
+  </div>
+  <div class="mt-3">
+    <button class="btn btn-success">Create</button>
+  </div>
+</form>
+{% endblock %}

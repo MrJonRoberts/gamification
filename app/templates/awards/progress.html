@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4">Award Progress — {{ award.name }} for {{ user.full_name }}</h1>
+{% if completed %}
+<div class="alert alert-success">Completed on {{ completed_at.strftime('%Y-%m-%d %H:%M') if completed_at else '—' }}</div>
+{% else %}
+<div class="alert alert-warning">Not yet completed</div>
+{% endif %}
+<table class="table table-sm">
+  <thead><tr><th>Badge</th><th>Status</th><th>Date Earned</th></tr></thead>
+  <tbody>
+  {% for p in progress.values() %}
+    <tr>
+      <td>{{ p.name }}</td>
+      <td>{% if p.earned %}<span class="badge bg-success">Earned</span>{% else %}<span class="badge bg-secondary">Pending</span>{% endif %}</td>
+      <td>{{ p.earned_at.strftime('%Y-%m-%d %H:%M') if p.earned_at else '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

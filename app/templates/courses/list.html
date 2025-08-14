@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4">Courses</h1>
+  <a class="btn btn-sm btn-primary" href="{{ url_for('courses.create_course') }}"><i class="fa fa-plus"></i> New</a>
+</div>
+<table class="table table-sm table-striped">
+  <thead><tr><th>Name</th><th>Semester</th><th>Year</th><th></th></tr></thead>
+  <tbody>
+  {% for c in courses %}
+    <tr>
+      <td>{{ c.name }}</td><td>{{ c.semester }}</td><td>{{ c.year }}</td>
+<!--      <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('courses.enroll', course_id=c.id) }}">Enroll</a></td>-->
+      <td>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('courses.enroll', course_id=c.id) }}">Enroll</a>
+  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('courses.students_in_course', course_id=c.id) }}">Roster</a>
+</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

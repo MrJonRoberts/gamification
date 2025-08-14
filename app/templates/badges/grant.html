@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4">Grant Badge — {{ badge.name }}</h1>
+<form method="post" class="d-flex gap-2 align-items-end">
+ <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="flex-grow-1">
+    <label class="form-label">Student</label>
+    <select class="form-select" name="user_id">
+      {% for s in students %}
+        <option value="{{ s.id }}">{{ s.last_name }}, {{ s.first_name }} ({{ s.student_code }})</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button class="btn btn-primary">Grant</button>
+</form>
+{% endblock %}

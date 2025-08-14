@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h1 class="h5 mb-1">{{ student.first_name }} {{ student.last_name }}</h1>
+    <div class="text-muted small">
+      Code: {{ student.student_code or '—' }} · Email: <a href="mailto:{{ student.email }}">{{ student.email }}</a>
+    </div>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span class="badge bg-primary fs-6">{{ total_points }} pts</span>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('students.detail', user_id=student.id) }}">
+      <i class="fa fa-id-badge"></i> Profile
+    </a>
+  </div>
+</div>
+
+{% if progress_list|length == 0 %}
+  <div class="alert alert-info">No awards have been defined yet.</div>
+{% else %}
+  <div class="row g-3">
+    {% for item in progress_list %}
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <h5 class="card-title mb-1">{{ item.award.name }}</h5>
+                <p class="small text-muted mb-2">{{ item.award.description }}</p>
+              </div>
+              {% if item.completed %}
+                <span class="badge bg-success">Completed</span>
+              {% else %}
+                <span class="badge bg-secondary">{{ item.earned }}/{{ item.total }}</span>
+              {% endif %}
+            </div>
+
+            <div class="progress mb-3" style="height:10px;">
+              <div class="progress-bar"
+                   role="progressbar"
+                   style="width: {{ (item.earned * 100 // (item.total or 1)) }}%;"
+                   aria-valuenow="{{ item.earned }}"
+                   aria-valuemin="0"
+                   aria-valuemax="{{ item.total }}">
+              </div>
+            </div>
+
+            <ul class="small mb-3">
+              {% for p in item.progress.values() %}
+                <li>
+                  {% if p.earned %}
+                    <i class="fa fa-check-circle text-success"></i>
+                  {% else %}
+                    <i class="fa fa-circle-notch text-muted"></i>
+                  {% endif %}
+                  {{ p.name }}
+                  {% if p.earned_at %}<span class="text-muted">— {{ p.earned_at.strftime('%Y-%m-%d') }}</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+
+            <div class="d-flex justify-content-between align-items-center">
+              <a class="btn btn-sm btn-outline-primary"
+                 href="{{ url_for('awards.progress', award_id=item.award.id, user_id=student.id) }}">
+                 View details
+              </a>
+              {% if item.completed and item.completed_at %}
+                <span class="small text-muted">Completed {{ item.completed_at.strftime('%Y-%m-%d') }}</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}

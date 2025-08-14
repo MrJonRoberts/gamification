@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4">Adjust Points</h1>
+<form method="post">
+  {{ form.csrf_token }}
+  <div class="row g-3">
+    <div class="col-md-6">{{ form.user_id.label }} {{ form.user_id(class="form-select") }}</div>
+    <div class="col-md-3">{{ form.delta.label }} {{ form.delta(class="form-control", value=0) }}</div>
+    <div class="col-md-3">{{ form.course_id.label }} {{ form.course_id(class="form-select") }}</div>
+    <div class="col-md-12">{{ form.reason.label }} {{ form.reason(class="form-control") }}</div>
+  </div>
+  <div class="mt-3"><button class="btn btn-success">Apply</button></div>
+</form>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h4">Create Award</h1>
+<form method="post">
+  {{ form.csrf_token }}
+  <div class="mb-3">{{ form.name.label }} {{ form.name(class="form-control") }}</div>
+  <div class="mb-3">{{ form.points.label }} {{ form.points(class="form-control", value=0) }}</div>
+  <div class="mb-3">{{ form.description.label }} {{ form.description(class="form-control", rows=3) }}</div>
+  <div class="mb-3">
+  <label class="form-label">Badges</label>
+  <div class="row">
+    {% for value, label in form.badges.choices %}
+      <div class="col-md-4">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox"
+                 name="{{ form.badges.name }}" value="{{ value }}" id="b{{ value }}">
+          <label class="form-check-label" for="b{{ value }}">{{ label }}</label>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+  <button class="btn btn-success">Save</button>
+</form>
+{% endblock %}
