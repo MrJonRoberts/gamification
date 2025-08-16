@@ -14,3 +14,10 @@ class Config:
     ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
     MAX_CONTENT_LENGTH = 4 * 1024 * 1024  # 4 MB
     AUTHOR = "JRO"
+
+    # Centralize allowed image types for uploads (reuse everywhere)
+    ALLOWED_IMAGE_EXTS = {"png", "jpg", "jpeg", "webp"}
+
+    # Safer cookies by default; set SECURE=True when you deploy behind HTTPS
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = False  # change to True in production (HTTPS)

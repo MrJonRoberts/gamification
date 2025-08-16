@@ -42,7 +42,15 @@ class Course(db.Model):
     year = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    db.Index("ix_ledger_created_at", "created_at"),
+
     students = db.relationship("User", secondary=Enrollment, backref="courses", lazy="dynamic")
+
+    __table_args__ = (
+        db.UniqueConstraint("name", "semester", "year", name="uq_course_term"),
+        db.Index("ix_course_term", "year", "semester"),
+    )
+
 
 class Badge(db.Model):
     __tablename__ = "badges"
@@ -53,6 +61,14 @@ class Badge(db.Model):
     points = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+
+    db.Index("ix_ledger_created_at", "created_at"),
+    __table_args__ = (
+        db.UniqueConstraint("name", name="uq_badge_name"),
+        db.CheckConstraint("points >= 0", name="ck_badge_points_nonneg"),
+        db.Index("ix_badge_name", "name"),
+    )
+
 
 class BadgeGrant(db.Model):
     __tablename__ = "badge_grants"
@@ -66,6 +82,14 @@ class BadgeGrant(db.Model):
     badge = db.relationship("Badge", backref="grants")
     issued_by = db.relationship("User", foreign_keys=[issued_by_id])
 
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "badge_id", name="uq_grant_user_badge"),
+        db.Index("ix_grant_user_id", "user_id"),
+        db.Index("ix_grant_badge_id", "badge_id"),
+    )
+
+
+
 class Award(db.Model):
     __tablename__ = "awards"
     id = db.Column(db.Integer, primary_key=True)
@@ -77,6 +101,15 @@ class Award(db.Model):
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_by = db.relationship("User")
 
+
+    db.Index("ix_ledger_created_at", "created_at"),
+
+    __table_args__ = (
+        db.UniqueConstraint("name", name="uq_award_name"),
+    )
+
+
+
 class AwardBadge(db.Model):
     __tablename__ = "award_badges"
     award_id = db.Column(db.Integer, db.ForeignKey("awards.id"), primary_key=True)
@@ -85,6 +118,7 @@ class AwardBadge(db.Model):
 
     award = db.relationship("Award", backref=db.backref("award_badges", cascade="all, delete-orphan"))
     badge = db.relationship("Badge")
+
 
 class PointLedger(db.Model):
     __tablename__ = "point_ledger"
@@ -100,6 +134,15 @@ class PointLedger(db.Model):
     user = db.relationship("User", foreign_keys=[user_id], backref="points")
     course = db.relationship("Course")
     issued_by = db.relationship("User", foreign_keys=[issued_by_id])
+
+    db.Index("ix_grant_issued_at", "issued_at"),
+    db.Index("ix_ledger_created_at", "created_at"),
+
+    __table_args__ = (
+        db.CheckConstraint("delta <> 0", name="ck_ledger_delta_nonzero"),
+        db.Index("ix_ledger_user_id", "user_id"),
+    )
+
 
 # Helper queries
 def user_total_points(user_id:int) -> int:
