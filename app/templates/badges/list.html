@@ -2,12 +2,15 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h1 class="h4">Badges</h1>
-  <a class="btn btn-sm btn-primary" href="{{ url_for('badges.create_badge') }}"><i class="fa fa-plus"></i> New</a>
+  <div class="d-flex gap-2">
+    <a class="btn btn-sm btn-primary" href="{{ url_for('badges.create_badge') }}"><i class="fa fa-plus"></i> New</a>
+    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('badges.bulk_badges') }}"><i class="fa fa-upload"></i> Bulk Upload</a>
+  </div>
 </div>
 <div class="row row-cols-1 row-cols-md-3 g-3">
   {% for b in badges %}
     <div class="col">
-      <div class="card h-100">
+      <div class="card">
         {% if b.icon %}<img src="{{ b.icon }}" class="card-img-top" alt="icon">{% endif %}
         <div class="card-body">
           <h5 class="card-title">{{ b.name }}</h5>
@@ -16,6 +19,9 @@
         <div class="card-footer d-flex justify-content-between align-items-center">
           <span class="badge bg-primary">{{ b.points }} pts</span>
           <a class="btn btn-sm btn-outline-success" href="{{ url_for('badges.grant', badge_id=b.id) }}">Grant</a>
+          {% if current_user.is_authenticated and current_user.role == 'admin' %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('badges.edit_badge', badge_id=b.id) }}">Edit</a>
+    {% endif %}
         </div>
       </div>
     </div>

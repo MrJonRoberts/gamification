@@ -8,3 +8,5 @@ email-validator
 WTForms
 pandas
 openpyxl
+
+Pillow>=10.3.0

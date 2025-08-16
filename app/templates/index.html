@@ -1,5 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
+{% if current_user.is_authenticated and current_user.role == 'admin' %}
+  <div class="alert alert-warning d-flex justify-content-between align-items-center">
+    <div>
+      <i class="fa fa-tools me-2"></i>
+      <strong>Admin tools:</strong> Reset & seed the database for testing.
+    </div>
+    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('admin.db_tools') }}">
+      <i class="fa fa-skull-crossbones me-1"></i> Reset & Seed
+    </a>
+  </div>
+{% endif %}
 <h1 class="h4">Leaderboard (Top 20)</h1>
 <table class="table table-striped">
   <thead><tr><th>#</th><th>Student</th><th>Points</th></tr></thead>

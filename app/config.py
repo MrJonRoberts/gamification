@@ -11,3 +11,6 @@ class Config:
     WTF_CSRF_TIME_LIMIT = None
     APP_NAME = os.getenv("APP_NAME", "app")
     APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
+    ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
+    MAX_CONTENT_LENGTH = 4 * 1024 * 1024  # 4 MB
+    AUTHOR = "JRO"

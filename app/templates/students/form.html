@@ -1,14 +1,57 @@
 {% extends "base.html" %}
 {% block content %}
 <h1 class="h4">Create Student</h1>
-<form method="post">
-  {{ form.csrf_token }}
-  <div class="row g-3">
-    <div class="col-md-3">{{ form.student_code.label }} {{ form.student_code(class="form-control") }}</div>
-    <div class="col-md-3">{{ form.email.label }} {{ form.email(class="form-control") }}</div>
-    <div class="col-md-3">{{ form.first_name.label }} {{ form.first_name(class="form-control") }}</div>
-    <div class="col-md-3">{{ form.last_name.label }} {{ form.last_name(class="form-control") }}</div>
+
+<div class="row g-4">
+  <!-- Single create -->
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6 mb-3">Single Student</h2>
+        <form method="post">
+          {{ form.csrf_token }}
+          <div class="row g-3">
+            <div class="col-md-3">{{ form.student_code.label }} {{ form.student_code(class="form-control") }}</div>
+            <div class="col-md-3">{{ form.email.label }} {{ form.email(class="form-control") }}</div>
+            <div class="col-md-3">{{ form.first_name.label }} {{ form.first_name(class="form-control") }}</div>
+            <div class="col-md-3">{{ form.last_name.label }} {{ form.last_name(class="form-control") }}</div>
+             <div class="col-md-6">{{ form.image.label }} {{ form.image(class="form-control") }}</div>
+          </div>
+          <div class="mt-3"><button class="btn btn-success">Save</button></div>
+        </form>
+      </div>
+    </div>
   </div>
-  <div class="mt-3"><button class="btn btn-success">Save</button></div>
+
+  <!-- Bulk upload -->
+  <div class="col-lg-6" id="bulk">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6 mb-3">Bulk Upload</h2>
+        <form method="post" enctype="multipart/form-data" class="row g-2">
+  <input type="hidden" name="action" value="bulk">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="col-md-6">
+    <label class="form-label">CSV/XLSX file</label>
+    <input type="file" class="form-control" name="file" accept=".csv,.xlsx,.xls" required>
+  </div>
+  <div class="col-md-6">
+    <label class="form-label">Images ZIP (optional)</label>
+    <input type="file" class="form-control" name="images_zip" accept=".zip">
+  </div>
+  <div class="col-12 d-flex gap-2 align-items-center">
+    <button class="btn btn-primary">Upload</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('students.bulk_template') }}">
+      Download sample CSV
+    </a>
+  </div>
+  <div class="col-12 small text-muted">
+    Required: <code>first_name</code>, <code>last_name</code>, <code>email</code>. Optional: <code>student_code</code>, <code>course</code>, <code>image_name</code>.<br>
+    If <code>image_name</code> is provided, include the file inside the ZIP. If omitted or missing, a preset avatar is used.
+  </div>
 </form>
-{% endblock %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}x

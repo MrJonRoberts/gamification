@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="h5 mb-3">Admin • Database Tools</h1>
+
+<div class="alert alert-danger">
+  <strong>Danger zone:</strong> This will <em>drop all tables</em> and re-create them using <code>seed.py</code>.
+  All current data will be lost. You will be logged out afterwards.
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <form method="post" action="{{ url_for('admin.reset_seed') }}" class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-12">
+        <label class="form-label">Type <code>RESET</code> to confirm</label>
+        <input class="form-control" name="confirm_text" placeholder="RESET" required>
+      </div>
+      <div class="col-12 form-check">
+        <input class="form-check-input" type="checkbox" id="cleanIcons" name="clean_icons">
+        <label class="form-check-label" for="cleanIcons">
+          Also delete uploaded icons (app/static/icons)
+        </label>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-danger">
+          <i class="fa fa-skull-crossbones me-1"></i> Reset & Seed
+        </button>
+        <span class="ms-3 text-muted small">DB URI: <code>{{ db_uri }}</code></span>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

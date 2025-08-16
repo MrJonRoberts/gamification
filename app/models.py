@@ -21,7 +21,7 @@ class User(db.Model, UserMixin):
     password_hash = db.Column(db.String(255), nullable=False)
     registered_method = db.Column(db.String(20), nullable=False, default="site")  # site|bulk
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
+    avatar = db.Column(db.String(255), nullable=True)
     issued_badges = db.relationship("Badge", backref="creator", lazy=True, foreign_keys="Badge.created_by_id")
 
     def set_password(self, password: str):

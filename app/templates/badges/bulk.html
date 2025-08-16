@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h1 class="h4">Bulk Badge Upload</h1>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('badges.list_badges') }}">
+    <i class="fa fa-arrow-left"></i> Back to Badges
+  </a>
+</div>
+
+<div class="alert alert-info">
+  <strong>How it works:</strong>
+  Upload a <code>.zip</code> with one CSV and the icon files.<br>
+  The CSV must be named anything (only one CSV in the zip) and include columns:
+  <code>name</code>, <code>points</code>, <code>description</code>, <code>icon_name</code>.<br>
+  Icons referenced by <code>icon_name</code> can be in any folder in the zip. If an icon is missing or blank,
+  a default icon is used. All icons are center-cropped and resized to 150×150 PNG, named from the badge name.
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-8">
+        <label class="form-label">ZIP file</label>
+        <input class="form-control" type="file" name="zipfile" accept=".zip" required>
+      </div>
+      <div class="col-md-4 d-flex align-items-end">
+        <button class="btn btn-primary w-100"><i class="fa fa-upload me-1"></i> Upload</button>
+      </div>
+      <div class="col-12 small text-muted">
+        <a href="{{ url_for('badges.bulk_badges_template') }}">Download CSV template</a>.
+        Example rows:
+        <code>First Program,10,Submitted your first working program.,first.png</code> |
+        <code>Team Player,5,Helped a peer solve a problem.,</code>.
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
