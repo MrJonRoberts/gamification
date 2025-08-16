@@ -6,7 +6,7 @@ import csv
 import io
 import os
 import zipfile
-
+import re
 from flask import (
     Blueprint,
     current_app,
@@ -21,7 +21,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import func
 
 from ...extensions import db
-from ...models import Badge, BadgeGrant, User
+from ...models import Badge, BadgeGrant, User, Award, AwardBadge
 from ...services.images import (
     allowed_image,
     open_image,
@@ -258,9 +258,10 @@ def bulk_badges():
             missing = required - cols
             if missing:
                 raise ValueError(f"CSV missing required columns: {', '.join(sorted(missing))}")
+            has_award = "award" in cols  # NEW (optional)
 
             # 4) Validate rows + detect duplicates
-            rows: list[tuple[str, int, str | None, str]] = []
+            rows: list[tuple[str, int, str | None, str, list[str]]] = []
             names_lower: set[str] = set()
             errors: list[str] = []
 
@@ -269,6 +270,7 @@ def bulk_badges():
                 points_raw = (row.get("points") or "").strip()
                 description = (row.get("description") or "").strip() or None
                 icon_name = (row.get("icon_name") or "").strip()
+                award_cell = (row.get("award") or "").strip() if has_award else ""
 
                 if not name:
                     errors.append(f"Line {i}: 'name' is required.")
@@ -286,7 +288,10 @@ def bulk_badges():
                     errors.append(f"Line {i}: points '{points_raw}' is not an integer.")
                     continue
 
-                rows.append((name, points, description, icon_name))
+                # support multiple awards split by comma or semicolon
+                awards = [a.strip() for a in re.split(r"[;,]", award_cell) if a.strip()] if award_cell else []
+
+                rows.append((name, points, description, icon_name, awards))
 
             if names_lower:
                 existing = (
@@ -302,9 +307,40 @@ def bulk_badges():
             if errors:
                 raise ValueError(" • " + " • ".join(errors))
 
-            # 5) Create all (transactional)
-            created = 0
-            for (name, points, description, icon_name) in rows:
+            # ---- Award caches (to avoid repeated lookups) ----
+            award_cache: dict[str, Award] = {}  # lower(name) -> Award
+            next_seq: dict[int, int] = {}       # award_id -> next sequence
+
+            def _get_or_create_award(award_name: str) -> Award:
+                key = award_name.strip().lower()
+                if key in award_cache:
+                    return award_cache[key]
+                # find existing
+                aw = (
+                    db.session.query(Award)
+                    .filter(func.lower(Award.name) == key)
+                    .first()
+                )
+                if not aw:
+                    aw = Award(name=award_name.strip(), description=None, points=0, created_by_id=current_user.id)
+                    db.session.add(aw)
+                    db.session.flush()  # get id
+                award_cache[key] = aw
+                # prime next_seq for this award
+                if aw.id not in next_seq:
+                    max_seq = db.session.query(func.coalesce(func.max(AwardBadge.sequence), 0)).filter(
+                        AwardBadge.award_id == aw.id
+                    ).scalar() or 0
+                    next_seq[aw.id] = int(max_seq) + 1
+                return aw
+
+            # 5) Create badges (and link to awards) — single commit at end
+            created_badges = 0
+            created_awards = 0
+            created_links = 0
+
+            for (name, points, description, icon_name, awards) in rows:
+                # Icon from ZIP (if present) else fallback
                 pil = None
                 if icon_name:
                     member = icon_map.get(os.path.basename(icon_name).lower())
@@ -314,26 +350,50 @@ def bulk_badges():
                                 pil = open_image(fp)
                         except Exception:
                             pil = None
-
                 if pil is None:
                     pil = badge_fallback(name)
 
                 icon_path = save_png(square(pil), "icons", name)
                 saved_files.append(icon_path)
 
-                db.session.add(
-                    Badge(
-                        name=name,
-                        description=description,
-                        icon=icon_path,
-                        points=points,
-                        created_by_id=current_user.id,
-                    )
+                b = Badge(
+                    name=name,
+                    description=description,
+                    icon=icon_path,
+                    points=points,
+                    created_by_id=current_user.id,
                 )
-                created += 1
+                db.session.add(b)
+                db.session.flush()  # get b.id for linking
+                created_badges += 1
+
+                # Link to awards (create award if needed)
+                for aw_name in awards:
+                    aw = _get_or_create_award(aw_name)
+                    if aw in award_cache.values() and aw.id not in next_seq:
+                        # should be primed above; guard just in case
+                        next_seq[aw.id] = 1
+
+                    # avoid duplicate link
+                    exists_link = (
+                        db.session.query(AwardBadge.id)
+                        .filter_by(award_id=aw.id, badge_id=b.id)
+                        .first()
+                    )
+                    if not exists_link:
+                        seq = next_seq.get(aw.id, 1)
+                        db.session.add(AwardBadge(award_id=aw.id, badge_id=b.id, sequence=seq))
+                        next_seq[aw.id] = seq + 1
+                        created_links += 1
+
+            # Count newly created awards (those that weren’t in DB)
+            created_awards = sum(1 for a in award_cache.values() if a.id and a.id in next_seq and next_seq[a.id] == 1)
 
             db.session.commit()
-            flash(f"Bulk upload complete: {created} badges created.", "success")
+            msg = f"Bulk upload complete: {created_badges} badges created."
+            if has_award:
+                msg += f" Linked {created_links} badge↔award pairs."
+            flash(msg, "success")
             return redirect(url_for("badges.list_badges"))
 
     except Exception as e:
@@ -351,10 +411,10 @@ def bulk_badges():
 @login_required
 def bulk_badges_template():
     csv_text = (
-        "name,points,description,icon_name\n"
-        "First Program,10,Submitted your first working program.,first_program.png\n"
-        "Debug Detective,15,Fixed a non-trivial bug using print/logging.,debug.png\n"
-        "Team Player,5,Helped a peer solve a problem.,\n"
+        "name,points,description,icon_name,award\n"
+        "First Program,10,Submitted your first working program.,first_program.png,Python Starter\n"
+        "Debug Detective,15,Fixed a non-trivial bug using print/logging.,debug.png,Python Starter\n"
+        "Team Player,5,Helped a peer solve a problem.,,\n"
     )
     return Response(
         csv_text,

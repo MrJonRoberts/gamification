@@ -1,39 +1,85 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h1 class="h4">Bulk Badge Upload</h1>
+  <h1 class="h4">Bulk Upload Badges</h1>
   <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('badges.list_badges') }}">
-    <i class="fa fa-arrow-left"></i> Back to Badges
+    ← Back to Badges
   </a>
 </div>
 
-<div class="alert alert-info">
-  <strong>How it works:</strong>
-  Upload a <code>.zip</code> with one CSV and the icon files.<br>
-  The CSV must be named anything (only one CSV in the zip) and include columns:
-  <code>name</code>, <code>points</code>, <code>description</code>, <code>icon_name</code>.<br>
-  Icons referenced by <code>icon_name</code> can be in any folder in the zip. If an icon is missing or blank,
-  a default icon is used. All icons are center-cropped and resized to 150×150 PNG, named from the badge name.
-</div>
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6 mb-3">Upload ZIP</h2>
+        <form method="post" enctype="multipart/form-data" id="bulkBadgesForm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label">ZIP file</label>
+            <input type="file" class="form-control" name="zipfile" accept=".zip" required>
+            <div class="form-text">
+              The ZIP must contain exactly <strong>one</strong> CSV and any icon image files you reference.
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-primary">
+              <i class="fa fa-upload"></i> Upload & Create
+            </button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('badges.bulk_badges_template') }}">
+              <i class="fa fa-file-arrow-down"></i> Download CSV template
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 
-<div class="card">
-  <div class="card-body">
-    <form method="post" enctype="multipart/form-data" class="row g-2">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="col-md-8">
-        <label class="form-label">ZIP file</label>
-        <input class="form-control" type="file" name="zipfile" accept=".zip" required>
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6 mb-2">CSV Columns</h2>
+        <ul class="small mb-3">
+          <li><code>name</code> — required; must be unique (case-insensitive)</li>
+          <li><code>points</code> — integer ≥ 0</li>
+          <li><code>description</code> — optional</li>
+          <li><code>icon_name</code> — optional; filename of an image inside the ZIP</li>
+          <li><code>award</code> — optional; an award name, or multiple separated by <code>;</code> or <code>,</code>. If an award doesn’t exist, it is <strong>created</strong> and the badge is linked to it automatically (sequence is assigned).</li>
+        </ul>
+
+        <details class="mb-3">
+          <summary class="small text-primary">Show sample CSV</summary>
+          <pre class="small bg-light p-2 border rounded mt-2 mb-0">name,points,description,icon_name,award
+First Program,10,Submitted your first working program.,first_program.png,Python Starter
+Debug Detective,15,Fixed a non-trivial bug using print/logging.,debug.png,Python Starter; Debug Track
+Team Player,5,Helped a peer solve a problem.,,Collaboration</pre>
+        </details>
+
+        <h2 class="h6 mb-2">Icons</h2>
+        <ul class="small mb-0">
+          <li>Supported types: PNG, JPG, JPEG, WEBP.</li>
+          <li>Icons are automatically center-cropped and resized to <strong>150×150</strong>, saved as PNG.</li>
+          <li>If <code>icon_name</code> is empty or not found, a default avatar icon is used.</li>
+        </ul>
       </div>
-      <div class="col-md-4 d-flex align-items-end">
-        <button class="btn btn-primary w-100"><i class="fa fa-upload me-1"></i> Upload</button>
-      </div>
-      <div class="col-12 small text-muted">
-        <a href="{{ url_for('badges.bulk_badges_template') }}">Download CSV template</a>.
-        Example rows:
-        <code>First Program,10,Submitted your first working program.,first.png</code> |
-        <code>Team Player,5,Helped a peer solve a problem.,</code>.
-      </div>
-    </form>
+    </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.addEventListener('load', function () {
+  const form = document.getElementById('bulkBadgesForm');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    const file = form.querySelector('input[name="zipfile"]')?.files?.[0];
+    if (!file) return; // required attr already handles this
+    const ok = file.name.toLowerCase().endsWith('.zip');
+    if (!ok) {
+      e.preventDefault();
+      alert('Please choose a .zip file.');
+    }
+  });
+});
+</script>
 {% endblock %}

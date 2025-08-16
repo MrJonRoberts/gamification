@@ -516,7 +516,7 @@ def awards_progress(user_id: int):
                 complete = False
         rows.append({"award": a, "badges": badges, "complete": complete})
 
-    return render_template("students/awards_progress.html", student=student, rows=rows)
+    return render_template("students/awards.html", student=student, rows=rows)
 
 
 # -----------------------------

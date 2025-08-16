@@ -66,19 +66,33 @@ def list_behaviours():
     if not user_id:
         return "<div class='text-danger small'>Missing user_id</div>", 400
 
-    # Optional: filter by course
     course_id = request.args.get("course_id", type=int)
-    q = Behaviour.query.filter_by(user_id=user_id)
-    if course_id:
-        q = q.filter_by(course_id=course_id)
 
+    # Base query (no limits) used for totals
+    base = db.session.query(Behaviour).filter(Behaviour.user_id == user_id)
+    if course_id:
+        base = base.filter(Behaviour.course_id == course_id)
+
+    # Rows to display (latest 50)
     behaviours = (
-        q.order_by(Behaviour.created_at.desc())
-         .limit(50)
-         .all()
+        base.order_by(Behaviour.created_at.desc(), Behaviour.id.desc())
+            .limit(50)
+            .all()
     )
 
-    # Total for this scope
-    total = db.session.query(func.coalesce(func.sum(Behaviour.delta), 0)).select_from(q.subquery()).scalar() or 0
+    # Totals
+    total_all = (
+        db.session.query(func.coalesce(func.sum(Behaviour.delta), 0))
+        .filter(Behaviour.user_id == user_id)
+        .filter(Behaviour.course_id == course_id) if course_id
+        else db.session.query(func.coalesce(func.sum(Behaviour.delta), 0)).filter(Behaviour.user_id == user_id)
+    ).scalar() or 0
 
-    return render_template("behaviours/_list.html", behaviours=behaviours, total=total)
+    total_shown = sum((b.delta or 0) for b in behaviours)
+
+    return render_template(
+        "behaviours/_list.html",
+        behaviours=behaviours,
+        total_all=int(total_all),
+        total_shown=int(total_shown),
+    )

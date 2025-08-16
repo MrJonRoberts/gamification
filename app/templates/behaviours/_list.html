@@ -1,9 +1,17 @@
 <div class="d-flex justify-content-between align-items-center mb-2">
-  <div class="small text-muted">Showing latest 50 entries</div>
-  <span class="badge {{ 'bg-success' if total>0 else ('bg-danger' if total<0 else 'bg-secondary') }}">
-    {{ '+' if total>0 else '' }}{{ total }} pts
+  <div class="small text-muted">Showing latest 50 entries
+  Showing latest 50 entries
+    {% if total_all != total_shown %}
+      <span class="ms-2">(shown total:
+        <strong class="{{ 'text-success' if total_shown>0 else ('text-danger' if total_shown<0 else 'text-muted') }}">
+          {{ '+' if total_shown>0 else '' }}{{ total_shown }}
+        </strong> pts)
+      </span>
+    {% endif %}
+  </div>
+  <span class="badge {{ 'bg-success' if total_all>0 else ('bg-danger' if total_all<0 else 'bg-secondary') }}">
+    Total (all): {{ '+' if total_all>0 else '' }}{{ total_all }} pts
   </span>
-</div>
 
 <table class="table table-sm align-middle">
   <thead>
