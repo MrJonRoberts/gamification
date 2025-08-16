@@ -27,15 +27,31 @@
     <tr><th>Badge</th><th>Points</th><th>Issued By</th><th>Date</th></tr>
   </thead>
   <tbody>
-    {% for grant, badge in grants %}
+    {% for g in grants %}
       <tr>
         <td>
-          {% if badge.icon %}<img src="{{ badge.icon }}" alt="" style="height:20px;width:20px;object-fit:cover" class="me-2 rounded">{% endif %}
-          {{ badge.name }}
+          {% if g.badge and g.badge.icon %}
+            <img src="{{ g.badge.icon }}" alt="" style="height:20px;width:20px;object-fit:cover" class="me-2 rounded">
+          {% endif %}
+          {{ g.badge.name if g.badge else ('Badge #' ~ g.badge_id) }}
         </td>
-        <td>{{ badge.points }}</td>
-        <td>{{ grant.issued_by.full_name if grant.issued_by else '—' }}</td>
-        <td>{{ grant.issued_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>{{ g.badge.points if g.badge else 0 }}</td>
+        <td>
+          {% if g.issued_by %}
+            {{ g.issued_by.first_name }} {{ g.issued_by.last_name }}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if g.issued_at %}
+            {{ g.issued_at.strftime('%Y-%m-%d %H:%M') }}
+          {% elif g.created_at %}
+            {{ g.created_at.strftime('%Y-%m-%d %H:%M') }}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
       </tr>
     {% else %}
       <tr><td colspan="4" class="text-muted">No badges yet.</td></tr>

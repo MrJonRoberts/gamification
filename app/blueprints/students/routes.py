@@ -1,7 +1,7 @@
 # app/blueprints/students/routes.py
 
 from __future__ import annotations
-
+from sqlalchemy.orm import joinedload
 import io
 import os
 import re
@@ -29,6 +29,7 @@ from ...models import (
     AwardBadge,
     BadgeGrant,
     PointLedger,
+    Behaviour
 )
 from ...services.images import (
     allowed_image,
@@ -144,13 +145,27 @@ def list_students():
             "in_progress": in_progress,
             "percent": percent,
         }
+        # NEW: behaviour totals per student
+    student_ids = [s.id for s in students]
+    behaviour_totals = {sid: 0 for sid in student_ids}
+    if student_ids:
+        rows = (
+            db.session.query(Behaviour.user_id, func.coalesce(func.sum(Behaviour.delta), 0))
+            .filter(Behaviour.user_id.in_(student_ids))
+            .group_by(Behaviour.user_id)
+            .all()
+        )
+        for uid, total in rows:
+            behaviour_totals[uid] = int(total or 0)
 
     return render_template(
         "students/list.html",
         students=students,
         courses=courses,
         award_summaries=award_summaries,
+        behaviour_totals=behaviour_totals,  # <-- pass to template
     )
+
 
 
 # -----------------------------
@@ -442,28 +457,34 @@ def edit_student(user_id: int):
 @login_required
 def detail(user_id: int):
     student = User.query.get_or_404(user_id)
-    # Total points
+
+    # Total points for the student
     total_points = (
         db.session.query(func.coalesce(func.sum(PointLedger.delta), 0))
         .filter(PointLedger.user_id == user_id)
         .scalar()
         or 0
     )
-    # Recent badge grants (you can customize)
+
+    # Eager-load related badge (and issuer if you have that relationship)
     grants = (
         db.session.query(BadgeGrant)
+        .options(
+            joinedload(BadgeGrant.badge),
+            joinedload(BadgeGrant.issued_by)  # ← remove this line if you don't have `issued_by` relationship
+        )
         .filter(BadgeGrant.user_id == user_id)
-        .order_by(BadgeGrant.issued_at.desc())
-        .limit(20)
+        .order_by(BadgeGrant.issued_at.desc(), BadgeGrant.id.desc())
+        .limit(50)
         .all()
     )
+
     return render_template(
         "students/detail.html",
         student=student,
         total_points=total_points,
         grants=grants,
     )
-
 
 @students_bp.route("/<int:user_id>/awards")
 @login_required

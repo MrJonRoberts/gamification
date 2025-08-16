@@ -12,11 +12,64 @@
 
 <table class="table table-sm table-striped align-middle">
   <thead>
-    <tr><th>Code</th><th>Name</th><th>Email</th><th>Profile</th></tr>
+    <tr>
+      <th style="width:48px;"></th>
+      <th>Code</th>
+      <th>Name</th>
+      <th>Email</th>
+      <th>Profile</th>
+    </tr>
   </thead>
   <tbody>
     {% for s in students %}
       <tr>
+        <td>
+          <button type="button"
+        class="btn p-0 border-0 bg-transparent behaviour-btn"
+        data-student-id="{{ s.id }}"
+        data-student-name="{{ s.first_name }} {{ s.last_name }}"
+        data-course-id="{{ course.id }}"
+        aria-label="Add behaviour">
+  {% if s.avatar %}
+    <img src="{{ s.avatar }}" alt="{{ s.first_name }} {{ s.last_name }}"
+         class="rounded-circle border"
+         style="width:36px;height:36px;object-fit:cover;">
+  {% else %}
+    <div class="rounded-circle border d-flex align-items-center justify-content-center"
+         style="width:36px;height:36px;">
+      <i class="fa-regular fa-user text-muted"></i>
+    </div>
+  {% endif %}
+</button>
+          {# Hidden template the JS will clone into the popover #}
+          <template id="tpl-behaviour-{{ s.id }}">
+            <form class="behaviour-form" data-endpoint="{{ url_for('behaviours.add_behaviour') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="user_id" value="{{ s.id }}">
+              <input type="hidden" name="course_id" value="{{ course.id }}">
+              <div class="mb-2 small text-muted">{{ s.first_name }} {{ s.last_name }}</div>
+              <div class="input-group input-group-sm mb-2">
+                <button class="btn btn-outline-secondary btn-minus" type="button" title="-1">
+                  <i class="fa fa-minus"></i>
+                </button>
+                <input type="number" class="form-control text-center" name="delta" value="1" step="1">
+                <button class="btn btn-outline-secondary btn-plus" type="button" title="+1">
+                  <i class="fa fa-plus"></i>
+                </button>
+              </div>
+              <div class="mb-2">
+                <input type="text" class="form-control form-control-sm" name="note" placeholder="Reason (optional)">
+              </div>
+              <div class="d-grid">
+                <button class="btn btn-sm btn-primary btn-save" type="submit">
+                  <i class="fa fa-check"></i> Save
+                </button>
+              </div>
+              <div class="small mt-2 text-muted behaviour-msg" role="status"></div>
+            </form>
+          </template>
+        </td>
+
         <td>{{ s.student_code or '—' }}</td>
         <td>{{ s.last_name }}, {{ s.first_name }}</td>
         <td><a href="mailto:{{ s.email }}">{{ s.email }}</a></td>
@@ -27,8 +80,130 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="4" class="text-muted">No students enrolled yet.</td></tr>
+      <tr><td colspan="5" class="text-muted">No students enrolled yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
 {% endblock %}
+{% block scripts %}
+<script>
+window.addEventListener('load', function () {
+  if (!window.bootstrap || !bootstrap.Popover) {
+    console.warn('Bootstrap Popover not available.');
+    return;
+  }
+
+  let openBtn = null;
+
+  function hideOpen() {
+    if (!openBtn) return;
+    const inst = bootstrap.Popover.getInstance(openBtn);
+    if (inst) inst.hide();
+    openBtn = null;
+  }
+
+  // Close on ESC
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideOpen();
+  });
+
+  // Click outside closes (but NOT clicks inside the popover)
+  document.addEventListener('click', (e) => {
+    if (!openBtn) return;
+    const pop = document.querySelector('.popover.show');
+    if (!pop) { openBtn = null; return; }
+    if (!pop.contains(e.target) && !openBtn.contains(e.target)) hideOpen();
+  });
+
+  document.querySelectorAll('.behaviour-btn').forEach(btn => {
+    const sid = btn.dataset.studentId;
+    const tpl = document.getElementById('tpl-behaviour-' + sid);
+    const contentHtml = tpl ? tpl.innerHTML : '<div class="text-danger small">Template missing</div>';
+
+    // Create manual popover (no auto-trigger)
+    const inst = new bootstrap.Popover(btn, {
+      trigger: 'manual',
+      container: 'body',
+      placement: 'right',
+      html: true,
+      sanitize: false,   // we trust our own HTML; needed so <form>/<input> aren't stripped
+      content: contentHtml,
+      title: btn.dataset.studentName || 'Behaviour'
+    });
+
+    // Toggle on avatar click
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const isOpen = !!btn.getAttribute('aria-describedby');
+      if (openBtn && openBtn !== btn) hideOpen();
+      if (isOpen) {
+        inst.hide();
+        openBtn = null;
+      } else {
+        inst.show();
+        openBtn = btn;
+      }
+    });
+
+    // After shown, wire up form controls
+    btn.addEventListener('shown.bs.popover', function () {
+      const popover = document.querySelector('.popover.show');
+      if (!popover) return;
+
+      // Don’t let clicks inside bubble up (which would count as "outside" and close)
+      popover.addEventListener('click', (e) => e.stopPropagation());
+
+      const form  = popover.querySelector('form.behaviour-form');
+      if (!form) return;
+
+      const input = form.querySelector('input[name="delta"]');
+      const minus = form.querySelector('.btn-minus');
+      const plus  = form.querySelector('.btn-plus');
+      const msg   = form.querySelector('.behaviour-msg');
+
+      minus?.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        let v = parseInt(input.value || '0', 10);
+        input.value = (v - 1) || -1;
+      });
+      plus?.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        let v = parseInt(input.value || '0', 10);
+        input.value = (v + 1) || 1;
+      });
+
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        msg.textContent = 'Saving...';
+        try {
+          const endpoint = form.getAttribute('data-endpoint');
+          const fd = new FormData(form);
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: fd
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            msg.textContent = 'Saved.';
+            setTimeout(() => hideOpen(), 500);
+          } else {
+            msg.textContent = data.error || 'Failed.';
+          }
+        } catch {
+          msg.textContent = 'Server error.';
+        }
+      });
+    });
+
+    btn.addEventListener('hide.bs.popover', function () {
+      if (openBtn === btn) openBtn = null;
+    });
+  });
+});
+</script>
+{% endblock %}
+

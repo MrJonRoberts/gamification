@@ -1,0 +1,45 @@
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <div class="small text-muted">Showing latest 50 entries</div>
+  <span class="badge {{ 'bg-success' if total>0 else ('bg-danger' if total<0 else 'bg-secondary') }}">
+    {{ '+' if total>0 else '' }}{{ total }} pts
+  </span>
+</div>
+
+<table class="table table-sm align-middle">
+  <thead>
+    <tr>
+      <th style="width:140px;">Date</th>
+      <th style="width:70px;">Points</th>
+      <th>Note</th>
+      <th style="width:180px;">Course</th>
+      <th style="width:160px;">By</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for b in behaviours %}
+    <tr>
+      <td class="text-nowrap">{{ b.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>
+        <span class="badge {{ 'bg-success' if b.delta>0 else 'bg-danger' }}">{{ '+' if b.delta>0 else '' }}{{ b.delta }}</span>
+      </td>
+      <td>{{ b.note or '—' }}</td>
+      <td>
+        {% if b.course %}
+          {{ b.course.name }} {{ b.course.semester }}{{ b.course.year }}
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if b.created_by %}
+          {{ b.created_by.first_name }} {{ b.created_by.last_name }}
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="text-muted">No behaviours yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>

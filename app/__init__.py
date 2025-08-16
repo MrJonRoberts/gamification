@@ -37,6 +37,7 @@ def create_app():
     from .blueprints.awards.routes import awards_bp
     from .blueprints.points.routes import points_bp
     from .blueprints.admin.routes import admin_bp
+    from .blueprints.behaviours.routes import behaviours_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -46,6 +47,7 @@ def create_app():
     app.register_blueprint(awards_bp, url_prefix="/awards")
     app.register_blueprint(points_bp, url_prefix="/points")
     app.register_blueprint(admin_bp, url_prefix="/admin")
+    app.register_blueprint(behaviours_bp, url_prefix="/behaviour")
 
     @login_manager.user_loader
     def load_user(user_id):
