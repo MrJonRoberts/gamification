@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h4 mb-0">Users</h1>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.users_index') }}">Refresh</a>
+  </div>
+
+  <form class="row g-2 mb-3" method="get" action="{{ url_for('admin.users_index') }}">
+    <div class="col-md-4">
+      <input type="text" name="q" class="form-control" placeholder="Search name/email/code…" value="{{ q }}">
+    </div>
+    <div class="col-md-3">
+      <select name="role" class="form-select">
+        <option value="">All roles</option>
+        {% for r in roles %}
+          <option value="{{ r.name }}" {{ 'selected' if role==r.name else '' }}>{{ r.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <select name="group" class="form-select">
+        <option value="">All groups</option>
+        {% for g in groups %}
+          <option value="{{ g.name }}" {{ 'selected' if group==g.name else '' }}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2 d-grid">
+      <button class="btn btn-primary" type="submit">Filter</button>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Code</th>
+          <th>Roles</th>
+          <th>Groups</th>
+          <th>Reg</th>
+          <th>Active</th>
+          <th style="width: 200px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td class="fw-semibold">{{ u.first_name }} {{ u.last_name }}</td>
+          <td><a href="mailto:{{ u.email }}">{{ u.email }}</a></td>
+          <td>{{ u.student_code or '-' }}</td>
+          <td>
+            {% if u.roles %}
+              {% for r in u.roles %}
+                <span class="badge bg-secondary me-1">{{ r.name }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="text-muted">–</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.groups %}
+              {% for g in u.groups %}
+                <span class="badge bg-light text-dark border me-1">{{ g.name }}</span>
+              {% endfor %}
+            {% else %}
+              <span class="text-muted">–</span>
+            {% endif %}
+          </td>
+          <td><span class="badge bg-info text-dark">{{ u.registration_method or 'site' }}</span></td>
+          <td>
+            <form method="post" action="{{ url_for('admin.users_toggle_active', user_id=u.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              {% if u.is_active %}
+                <button class="btn btn-sm btn-success" title="Click to deactivate" type="submit">Active</button>
+              {% else %}
+                <button class="btn btn-sm btn-outline-secondary" title="Click to activate" type="submit">Inactive</button>
+              {% endif %}
+            </form>
+          </td>
+          <td class="text-nowrap">
+            <a class="btn btn-sm btn-primary" href="{{ url_for('admin.users_edit', user_id=u.id) }}">Edit</a>
+
+            <form method="post" action="{{ url_for('admin.users_reset_password', user_id=u.id) }}"
+                  class="d-inline" onsubmit="return confirm('Set a new temporary password for this user?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-warning" type="submit">Reset PW</button>
+            </form>
+
+            <form method="post" action="{{ url_for('admin.users_delete', user_id=u.id) }}"
+                  class="d-inline" onsubmit="return confirm('Delete this user permanently?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pagination is defined and pagination and pagination.pages > 1 %}
+  <nav aria-label="Users pagination">
+    <ul class="pagination">
+      <li class="page-item {{ 'disabled' if not pagination.has_prev }}">
+        <a class="page-link" href="{{ url_for('admin.users_index', q=q, role=role, group=group, page=pagination.prev_num) }}">«</a>
+      </li>
+      {% for p in range(1, pagination.pages+1) %}
+      <li class="page-item {{ 'active' if p==pagination.page }}">
+        <a class="page-link" href="{{ url_for('admin.users_index', q=q, role=role, group=group, page=p) }}">{{ p }}</a>
+      </li>
+      {% endfor %}
+      <li class="page-item {{ 'disabled' if not pagination.has_next }}">
+        <a class="page-link" href="{{ url_for('admin.users_index', q=q, role=role, group=group, page=pagination.next_num) }}">»</a>
+      </li>
+    </ul>
+  </nav>
+  {% endif %}
+</div>
+{% endblock %}

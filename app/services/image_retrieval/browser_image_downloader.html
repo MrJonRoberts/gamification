@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Downloader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        #progress {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .log {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #fff;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .log-success { color: #28a745; }
+        .log-error { color: #dc3545; }
+        .log-info { color: #17a2b8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖼️ Image Downloader</h1>
+        
+        <div class="input-group">
+            <label for="urlTemplate">URL Template (use {id} as placeholder):</label>
+            <input type="text" id="urlTemplate" placeholder="https://example.com/image/{id}" value="https://example.com/image/{id}">
+        </div>
+        
+        <div class="input-group">
+            <label for="idList">IDs (one per line):</label>
+            <textarea id="idList" placeholder="Enter your IDs, one per line:&#10;12345&#10;67890&#10;54321"></textarea>
+        </div>
+        
+        <button class="btn" onclick="startDownload()">Start Download</button>
+        
+        <div id="progress">
+            <div class="log-info">Progress: <span id="progressText">0/0</span></div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="log" id="logContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        function detectImageExtension(arrayBuffer) {
+            const uint8Array = new Uint8Array(arrayBuffer);
+            
+            // Check magic bytes for different image formats
+            if (uint8Array.length >= 3 && 
+                uint8Array[0] === 0xFF && uint8Array[1] === 0xD8 && uint8Array[2] === 0xFF) {
+                return '.jpg';
+            }
+            
+            if (uint8Array.length >= 8 && 
+                uint8Array[0] === 0x89 && uint8Array[1] === 0x50 && 
+                uint8Array[2] === 0x4E && uint8Array[3] === 0x47 &&
+                uint8Array[4] === 0x0D && uint8Array[5] === 0x0A && 
+                uint8Array[6] === 0x1A && uint8Array[7] === 0x0A) {
+                return '.png';
+            }
+            
+            if (uint8Array.length >= 6 && 
+                ((uint8Array[0] === 0x47 && uint8Array[1] === 0x49 && uint8Array[2] === 0x46 &&
+                  uint8Array[3] === 0x38 && uint8Array[4] === 0x37 && uint8Array[5] === 0x61) ||
+                 (uint8Array[0] === 0x47 && uint8Array[1] === 0x49 && uint8Array[2] === 0x46 &&
+                  uint8Array[3] === 0x38 && uint8Array[4] === 0x39 && uint8Array[5] === 0x61))) {
+                return '.gif';
+            }
+            
+            if (uint8Array.length >= 12 && 
+                uint8Array[0] === 0x52 && uint8Array[1] === 0x49 && 
+                uint8Array[2] === 0x46 && uint8Array[3] === 0x46 &&
+                uint8Array[8] === 0x57 && uint8Array[9] === 0x45 && 
+                uint8Array[10] === 0x42 && uint8Array[11] === 0x50) {
+                return '.webp';
+            }
+            
+            // Default fallback
+            return '.jpg';
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function logMessage(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-${type}`;
+            logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function updateProgress(current, total) {
+            const progressText = document.getElementById('progressText');
+            const progressFill = document.getElementById('progressFill');
+            
+            progressText.textContent = `${current}/${total}`;
+            const percentage = (current / total) * 100;
+            progressFill.style.width = `${percentage}%`;
+        }
+
+        async function downloadImage(id, urlTemplate) {
+            try {
+                const url = urlTemplate.replace('{id}', id);
+                logMessage(`Downloading ID: ${id}`, 'info');
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const arrayBuffer = await response.arrayBuffer();
+                const extension = detectImageExtension(arrayBuffer);
+                const filename = `${id}${extension}`;
+                
+                const blob = new Blob([arrayBuffer]);
+                downloadBlob(blob, filename);
+                
+                logMessage(`✓ Downloaded: ${filename}`, 'success');
+                return true;
+                
+            } catch (error) {
+                logMessage(`✗ Failed ID ${id}: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function startDownload() {
+            const urlTemplate = document.getElementById('urlTemplate').value.trim();
+            const idListText = document.getElementById('idList').value.trim();
+            
+            if (!urlTemplate || !idListText) {
+                alert('Please fill in both URL template and ID list');
+                return;
+            }
+            
+            if (!urlTemplate.includes('{id}')) {
+                alert('URL template must contain {id} placeholder');
+                return;
+            }
+            
+            const idList = idListText.split('\n').map(id => id.trim()).filter(id => id);
+            
+            if (idList.length === 0) {
+                alert('Please enter at least one ID');
+                return;
+            }
+            
+            // Show progress section
+            document.getElementById('progress').style.display = 'block';
+            document.getElementById('logContainer').innerHTML = '';
+            
+            // Disable button
+            const button = document.querySelector('.btn');
+            button.disabled = true;
+            button.textContent = 'Downloading...';
+            
+            let successful = 0;
+            let failed = 0;
+            
+            logMessage(`Starting download of ${idList.length} images`, 'info');
+            updateProgress(0, idList.length);
+            
+            for (let i = 0; i < idList.length; i++) {
+                const success = await downloadImage(idList[i], urlTemplate);
+                
+                if (success) {
+                    successful++;
+                } else {
+                    failed++;
+                }
+                
+                updateProgress(i + 1, idList.length);
+                
+                // Small delay to prevent overwhelming the server
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            // Re-enable button
+            button.disabled = false;
+            button.textContent = 'Start Download';
+            
+            logMessage(`Download complete! Successful: ${successful}, Failed: ${failed}`, 'info');
+        }
+    </script>
+</body>
+</html>

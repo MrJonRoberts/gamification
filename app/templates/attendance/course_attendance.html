@@ -1,0 +1,336 @@
+{# app/templates/attendance/course_attendance.html #}
+{% extends "base.html" %}
+{% block title %}Attendance — {{ course.name }}{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+
+  <!-- Toolbar -->
+  <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+    <h1 class="h4 mb-0"><i class="fa-solid fa-user-check me-2"></i>Attendance — {{ course.name }}</h1>
+
+    <form class="d-flex align-items-center gap-2 ms-auto" method="get">
+      <label class="form-label mb-0 small text-muted">Date</label>
+      <input type="date" name="date" value="{{ selected_date.strftime('%Y-%m-%d') }}" class="form-control form-control-sm" onchange="this.form.submit()">
+    </form>
+  </div>
+
+  <!-- Global day bulk-set -->
+  <div class="card mb-3">
+    <div class="card-body d-flex flex-wrap align-items-center gap-2">
+      <span class="fw-semibold me-1">Force all (this day):</span>
+      <div class="btn-group" role="group" aria-label="Bulk set day">
+        {% for key, meta in status_meta.items() if key != 'unknown' %}
+          <button class="btn btn-sm btn-outline-secondary bulk-day" data-status="{{ key }}">
+            <i class="fa-solid {{ meta.icon }} me-1"></i>{{ meta.label }}
+          </button>
+        {% endfor %}
+      </div>
+      <div class="text-muted small ms-2">(Sets every student in every lesson shown below.)</div>
+    </div>
+  </div>
+
+  <!-- Scrollable table wrapper -->
+  <div class="att-table-wrapper">
+    <table class="table table-sm align-middle att-table">
+      <thead class="table-light">
+        <tr>
+          <th class="att-sticky-left" style="min-width: 260px;">
+            <i class="fa-solid fa-users me-2"></i>Students
+          </th>
+
+          {% for l in lessons %}
+            <th class="text-center">
+              <div class="d-flex flex-column align-items-center gap-1">
+                <div class="fw-semibold">
+                  {{ getattr(l, 'title', None) or ('Lesson ' ~ loop.index) }}
+                </div>
+                {% if getattr(l, 'starts_at', None) and getattr(l, 'ends_at', None) %}
+                  <div class="small text-muted">
+                    {{ l.starts_at.strftime('%-I:%M %p') }}–{{ l.ends_at.strftime('%-I:%M %p') }}
+                  </div>
+                {% endif %}
+                <div>
+                  <div class="btn-group btn-group-sm" role="group" aria-label="Set all for lesson">
+                    {% for key, meta in status_meta.items() if key != 'unknown' %}
+                      <button class="btn btn-outline-secondary bulk-lesson" data-lesson="{{ l.id }}" data-status="{{ key }}" title="Set all to {{ meta.label }}">
+                        <i class="fa-solid {{ meta.icon }}"></i>
+                      </button>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+            </th>
+          {% endfor %}
+
+          <th class="att-sticky-right text-center" style="min-width: 120px;">
+            <i class="fa-solid fa-chart-simple me-1"></i>% Present
+          </th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for u in students %}
+          <tr data-user="{{ u.id }}">
+            <!-- Student cell -->
+            <td class="att-sticky-left">
+              <div class="d-flex align-items-center gap-2">
+                <img src="{{ url_for('static', filename='img/stds/')}}{{u.student_code }}.jpg" class="rounded-circle" style="width:32px;height:32px;" alt="avatar">
+                <div class="d-flex flex-column">
+                  <span class="fw-semibold">{{ u.last_name }}, {{ u.first_name }}</span>
+                  <span class="text-muted small">{{ u.email }}</span>
+                </div>
+              </div>
+            </td>
+
+            <!-- Lesson cells -->
+            {% for l in lessons %}
+              {% set current = att_map.get((u.id, l.id), 'unknown') %}
+              {% set meta = status_meta[current] %}
+              <td class="att-cell text-center {{ meta.class }}" data-lesson="{{ l.id }}" data-user="{{ u.id }}">
+                <select class="form-select form-select-sm att-select" aria-label="Attendance select"
+                        data-lesson="{{ l.id }}" data-user="{{ u.id }}">
+                  {% for key, smeta in status_meta.items() %}
+                    <option value="{{ key }}" {% if key == current %}selected{% endif %}>
+                      {{ smeta.label }}
+                    </option>
+                  {% endfor %}
+                </select>
+                <div class="att-pill mt-1">
+                  <i class="fa-solid {{ meta.icon }} me-1"></i><span>{{ meta.label }}</span>
+                </div>
+              </td>
+            {% endfor %}
+
+            <!-- % Present -->
+            {% set ratio = student_present_ratio.get(u.id, 0.0) %}
+            <td class="att-sticky-right text-center">
+              <div class="progress" style="height: 16px;">
+                <div class="progress-bar" role="progressbar" style="width: {{ (ratio*100)|round(0) }}%;" aria-valuenow="{{ (ratio*100)|round(0) }}" aria-valuemin="0" aria-valuemax="100">
+                  {{ (ratio*100)|round(0) }}%
+                </div>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+
+      <tfoot class="table-light">
+        <tr>
+          <th class="att-sticky-left">Summary</th>
+
+          {% for l in lessons %}
+            {% set c = counts.get(l.id, {}) %}
+            <th class="text-center">
+              <div class="d-flex flex-column gap-1 align-items-center">
+                <span class="small">
+                  <i class="fa-solid fa-circle-check text-success me-1"></i>
+                  <span class="att-sum-present" data-lesson="{{ l.id }}">{{ c.get('present', 0) }}</span> present
+                </span>
+                <span class="small">
+                  <i class="fa-solid fa-clock text-warning me-1"></i>
+                  <span class="att-sum-late" data-lesson="{{ l.id }}">{{ c.get('late', 0) }}</span> late
+                </span>
+                <span class="small">
+                  <i class="fa-solid fa-circle-xmark text-danger me-1"></i>
+                  <span class="att-sum-absent" data-lesson="{{ l.id }}">{{ c.get('absent', 0) }}</span> absent
+                </span>
+              </div>
+            </th>
+          {% endfor %}
+
+          <th class="att-sticky-right text-center">—</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<!-- CSRF meta -->
+<meta name="csrf-token" content="{{ csrf_token() }}">
+
+<!-- Page CSS -->
+<style>
+  .att-table-wrapper {
+    overflow-x: auto;
+    padding-bottom: 1rem;
+  }
+  .att-table th, .att-table td { white-space: nowrap; }
+
+  .att-sticky-left {
+    position: sticky; left: 0; z-index: 2; background: var(--bs-body-bg);
+  }
+  .att-sticky-right {
+    position: sticky; right: 0; z-index: 2; background: var(--bs-body-bg);
+  }
+
+  /* Status coloring for cells */
+  .att-cell { min-width: 150px; }
+  .att-select { display: none; } /* We show the pill and toggle to select on click */
+
+  .att-pill {
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 999px; padding: 0.15rem 0.5rem; font-size: .8rem;
+    border: 1px solid transparent;
+  }
+  .att-present  .att-pill { background: #eaf7ea; color: #0f5132; border-color: #badbcc; }
+  .att-absent   .att-pill { background: #fae3e3; color: #842029; border-color: #f1aeb5; }
+  .att-late     .att-pill { background: #fff4e5; color: #8a6d3b; border-color: #ffecb5; }
+  .att-excused  .att-pill { background: #e7f1ff; color: #084298; border-color: #9ec5fe; }
+  .att-unknown  .att-pill { background: #f1f3f5; color: #495057; border-color: #ced4da; }
+
+  /* Make first and last column headers/footers sticky visuals align */
+  thead .att-sticky-left, tfoot .att-sticky-left { background: var(--bs-light); }
+  thead .att-sticky-right, tfoot .att-sticky-right { background: var(--bs-light); }
+
+  /* Compact rows */
+  .table.att-table > :not(caption) > * > * { padding: .5rem .5rem; }
+</style>
+
+<!-- Page JS -->
+<script>
+(function(){
+  const COURSE_ID = {{ course.id }};
+  const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+  const STATUS_META = {
+    {% for key, meta in status_meta.items() %}
+    "{{ key }}": {label: "{{ meta.label }}", icon: "{{ meta.icon }}", cls: "{{ meta.class }}"},
+    {% endfor %}
+  };
+
+  function setCellStatus(td, status){
+    status = STATUS_META[status] ? status : 'unknown';
+    // Strip old classes
+    td.classList.remove('att-present','att-absent','att-late','att-excused','att-unknown');
+    td.classList.add(STATUS_META[status].cls);
+    // Update pill text/icon
+    const pill = td.querySelector('.att-pill');
+    if (pill){
+      pill.innerHTML = `<i class="fa-solid ${STATUS_META[status].icon} me-1"></i><span>${STATUS_META[status].label}</span>`;
+    }
+    // Sync select value (even though hidden)
+    const sel = td.querySelector('.att-select');
+    if (sel) sel.value = status;
+  }
+
+  async function postJSON(url, payload){
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type':'application/json',
+        'X-CSRFToken': CSRF
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok){
+      const t = await r.text();
+      throw new Error(t || r.statusText);
+    }
+    return r.json();
+  }
+
+  // Toggle select on pill click for quick change
+  document.querySelectorAll('.att-cell').forEach(td => {
+    td.addEventListener('click', (e) => {
+      const sel = td.querySelector('.att-select');
+      if (!sel) return;
+      // Show a small popover-like chooser by temporarily revealing select
+      sel.style.display = 'block';
+      sel.focus();
+    });
+  });
+
+  // On select change => save
+  document.querySelectorAll('.att-select').forEach(sel => {
+    sel.addEventListener('change', async (e) => {
+      const userId = +sel.dataset.user;
+      const lessonId = +sel.dataset.lesson;
+      const status = sel.value;
+      const td = sel.closest('td');
+
+      try {
+        await postJSON(`/courses/${COURSE_ID}/attendance/api/set`, {user_id: userId, lesson_id: lessonId, status});
+        setCellStatus(td, status);
+        await refreshSummaryAndRatios();
+      } catch (err){
+        console.error(err);
+        alert('Failed to save attendance.');
+      } finally {
+        sel.blur();
+        sel.style.display = 'none';
+      }
+    });
+    sel.addEventListener('blur', () => { sel.style.display = 'none'; });
+  });
+
+  // Per-column bulk set
+  document.querySelectorAll('.bulk-lesson').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const status = btn.dataset.status;
+      const lessonId = +btn.dataset.lesson;
+      try {
+        await postJSON(`/courses/${COURSE_ID}/attendance/api/bulk_set`, {lesson_id: lessonId, status});
+        // Update DOM
+        document.querySelectorAll(`td[data-lesson="${lessonId}"]`).forEach(td => setCellStatus(td, status));
+        await refreshSummaryAndRatios();
+      } catch (err){
+        console.error(err);
+        alert('Bulk set failed.');
+      }
+    });
+  });
+
+  // Global day bulk set
+  document.querySelectorAll('.bulk-day').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const status = btn.dataset.status;
+      // Collect lesson ids on page
+      const lessonIds = Array.from(document.querySelectorAll('td[data-lesson]'))
+        .reduce((acc, td) => { const lid = +td.dataset.lesson; if (!acc.includes(lid)) acc.push(lid); return acc; }, []);
+      try {
+        await postJSON(`/courses/${COURSE_ID}/attendance/api/bulk_set`, {lesson_ids: lessonIds, status});
+        document.querySelectorAll('td[data-lesson]').forEach(td => setCellStatus(td, status));
+        await refreshSummaryAndRatios();
+      } catch (err){
+        console.error(err);
+        alert('Day bulk set failed.');
+      }
+    });
+  });
+
+  // Refresh footer summaries and right-column ratios
+  async function refreshSummaryAndRatios(){
+    const params = new URLSearchParams(window.location.search);
+    const r = await fetch(`/courses/${COURSE_ID}/attendance/api/summary?` + params.toString(), {
+      headers: {'X-CSRFToken': CSRF}
+    });
+    if (!r.ok) return;
+    const data = await r.json();
+
+    // Update per-lesson counts
+    Object.entries(data.lessons || {}).forEach(([lid, cnt]) => {
+      lid = +lid;
+      const p = document.querySelector(`.att-sum-present[data-lesson="${lid}"]`);
+      const a = document.querySelector(`.att-sum-absent[data-lesson="${lid}"]`);
+      const l = document.querySelector(`.att-sum-late[data-lesson="${lid}"]`);
+      if (p) p.textContent = cnt.present || 0;
+      if (a) a.textContent = cnt.absent || 0;
+      if (l) l.textContent = cnt.late || 0;
+    });
+
+    // Update right-side ratios
+    (data.student_ratio ? Object.entries(data.student_ratio) : []).forEach(([uid, ratio]) => {
+      uid = +uid;
+      const row = document.querySelector(`tr[data-user="${uid}"]`);
+      if (!row) return;
+      const bar = row.querySelector('.att-sticky-right .progress-bar');
+      if (!bar) return;
+      const pct = Math.round((ratio || 0) * 100);
+      bar.style.width = pct + '%';
+      bar.setAttribute('aria-valuenow', pct);
+      bar.textContent = pct + '%';
+    });
+  }
+})();
+</script>
+{% endblock %}

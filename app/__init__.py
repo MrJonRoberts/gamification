@@ -2,7 +2,8 @@ import os
 from flask import Flask
 from .config import Config
 from .extensions import db, migrate, login_manager, csrf
-from .models import User
+from flask_wtf.csrf import generate_csrf
+from app.models import User
 
 def create_app():
     app = Flask(__name__, instance_relative_config=True, static_folder="static", template_folder="templates")
@@ -38,6 +39,10 @@ def create_app():
     from .blueprints.points.routes import points_bp
     from .blueprints.admin.routes import admin_bp
     from .blueprints.behaviours.routes import behaviours_bp
+    from .blueprints.seating.routes import seating_bp
+    from .blueprints.attendance.routes import attendance_bp
+
+    from .blueprints.schedule.routes import schedule_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -48,6 +53,9 @@ def create_app():
     app.register_blueprint(points_bp, url_prefix="/points")
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(behaviours_bp, url_prefix="/behaviour")
+    app.register_blueprint(seating_bp, url_prefix="/seating")
+    app.register_blueprint(attendance_bp, url_prefix="/attendance")
+    app.register_blueprint(schedule_bp)
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -57,5 +65,9 @@ def create_app():
     def unauthorized():
         from flask import redirect, url_for
         return redirect(url_for("auth.login"))
+
+    @app.context_processor
+    def inject_csrf():
+        return dict(csrf_token=generate_csrf)
 
     return app

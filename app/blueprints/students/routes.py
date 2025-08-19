@@ -22,7 +22,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import func
 
 from ...extensions import db
-from ...models import (
+from app.models import (
     User,
     Course,
     Award,

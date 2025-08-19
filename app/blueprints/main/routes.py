@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template
 from flask_login import login_required, current_user
 from ...extensions import db
-from ...models import User, PointLedger
+from app.models import User, PointLedger
 from sqlalchemy import func
 
 main_bp = Blueprint("main", __name__)
@@ -19,3 +19,9 @@ def index():
         .limit(20)
     ).all()
     return render_template("index.html", leaderboard=rows)
+
+
+@main_bp.route("/timer")
+@login_required
+def timer():
+    return render_template("timer.html")

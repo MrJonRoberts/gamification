@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Downloader - CORS Workaround</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .method-section {
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .method-title {
+            color: #495057;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], textarea, select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-right: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .btn-secondary {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+        }
+        #progress {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #28a745, #20c997);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .log {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #fff;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .log-success { color: #28a745; }
+        .log-error { color: #dc3545; }
+        .log-info { color: #17a2b8; }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .code {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖼️ Image Downloader - CORS Solutions</h1>
+        
+        <div class="warning">
+            <strong>CORS Issue Detected!</strong> The browser blocks direct requests to external domains. Choose one of the solutions below:
+        </div>
+
+        <!-- Method 1: CORS Proxy -->
+        <div class="method-section">
+            <div class="method-title">Method 1: CORS Proxy (Recommended)</div>
+            <div class="info">
+                Uses a CORS proxy service to bypass restrictions. Works immediately but may have rate limits.
+            </div>
+            
+            <div class="input-group">
+                <label for="proxyService">CORS Proxy Service:</label>
+                <select id="proxyService">
+                    <option value="https://cors-anywhere.herokuapp.com/">CORS Anywhere (requires activation)</option>
+                    <option value="https://api.allorigins.win/raw?url=">AllOrigins</option>
+                    <option value="https://cors-proxy.fringe.zone/">Fringe CORS</option>
+                </select>
+            </div>
+            
+            <div class="input-group">
+                <label for="urlTemplate1">URL Template (use {id} as placeholder):</label>
+                <input type="text" id="urlTemplate1" placeholder="https://example.com/image/{id}" value="https://example.com/image/{id}">
+            </div>
+            
+            <div class="input-group">
+                <label for="idList1">IDs (one per line):</label>
+                <textarea id="idList1" placeholder="Enter your IDs, one per line:&#10;12345&#10;67890&#10;54321"></textarea>
+            </div>
+            
+            <button class="btn" onclick="startProxyDownload()">Download with Proxy</button>
+        </div>
+
+        <!-- Method 2: Direct Link Generation -->
+        <div class="method-section">
+            <div class="method-title">Method 2: Generate Direct Download Links</div>
+            <div class="info">
+                Creates clickable links that bypass CORS by opening images directly in new tabs.
+            </div>
+            
+            <div class="input-group">
+                <label for="urlTemplate2">URL Template (use {id} as placeholder):</label>
+                <input type="text" id="urlTemplate2" placeholder="https://example.com/image/{id}" value="https://example.com/image/{id}">
+            </div>
+            
+            <div class="input-group">
+                <label for="idList2">IDs (one per line):</label>
+                <textarea id="idList2" placeholder="Enter your IDs, one per line:&#10;12345&#10;67890&#10;54321"></textarea>
+            </div>
+            
+            <button class="btn btn-secondary" onclick="generateLinks()">Generate Links</button>
+            <button class="btn" onclick="openAllTabs()" id="openAllBtn" style="display:none;">Open All in Tabs</button>
+            
+            <div id="linkContainer" style="margin-top: 20px;"></div>
+        </div>
+
+        <!-- Method 3: Browser Extension Script -->
+        <div class="method-section">
+            <div class="method-title">Method 3: Browser Console Script (Advanced)</div>
+            <div class="info">
+                Copy this script to your browser's developer console on the target website's domain to avoid CORS.
+            </div>
+            
+            <div class="input-group">
+                <label for="urlTemplate3">URL Template:</label>
+                <input type="text" id="urlTemplate3" placeholder="https://example.com/image/{id}" value="https://example.com/image/{id}">
+            </div>
+            
+            <div class="input-group">
+                <label for="idList3">IDs (comma-separated):</label>
+                <input type="text" id="idList3" placeholder="12345,67890,54321">
+            </div>
+            
+            <button class="btn btn-secondary" onclick="generateConsoleScript()">Generate Console Script</button>
+            
+            <div id="consoleScript" style="margin-top: 15px;"></div>
+        </div>
+
+        <div id="progress">
+            <div class="log-info">Progress: <span id="progressText">0/0</span></div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="log" id="logContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        function logMessage(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-${type}`;
+            logEntry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function updateProgress(current, total) {
+            const progressText = document.getElementById('progressText');
+            const progressFill = document.getElementById('progressFill');
+            
+            progressText.textContent = `${current}/${total}`;
+            const percentage = (current / total) * 100;
+            progressFill.style.width = `${percentage}%`;
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        async function startProxyDownload() {
+            const proxyService = document.getElementById('proxyService').value;
+            const urlTemplate = document.getElementById('urlTemplate1').value.trim();
+            const idListText = document.getElementById('idList1').value.trim();
+            
+            if (!urlTemplate || !idListText) {
+                alert('Please fill in both URL template and ID list');
+                return;
+            }
+            
+            const idList = idListText.split('\n').map(id => id.trim()).filter(id => id);
+            
+            document.getElementById('progress').style.display = 'block';
+            document.getElementById('logContainer').innerHTML = '';
+            
+            let successful = 0;
+            let failed = 0;
+            
+            logMessage(`Starting download of ${idList.length} images using proxy`, 'info');
+            updateProgress(0, idList.length);
+            
+            for (let i = 0; i < idList.length; i++) {
+                try {
+                    const originalUrl = urlTemplate.replace('{id}', idList[i]);
+                    const proxyUrl = proxyService + encodeURIComponent(originalUrl);
+                    
+                    logMessage(`Downloading ID: ${idList[i]}`, 'info');
+                    
+                    const response = await fetch(proxyUrl);
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    
+                    const blob = await response.blob();
+                    downloadBlob(blob, `${idList[i]}.jpg`);
+                    
+                    logMessage(`✓ Downloaded: ${idList[i]}.jpg`, 'success');
+                    successful++;
+                    
+                } catch (error) {
+                    logMessage(`✗ Failed ID ${idList[i]}: ${error.message}`, 'error');
+                    failed++;
+                }
+                
+                updateProgress(i + 1, idList.length);
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            logMessage(`Download complete! Successful: ${successful}, Failed: ${failed}`, 'info');
+        }
+
+        function generateLinks() {
+            const urlTemplate = document.getElementById('urlTemplate2').value.trim();
+            const idListText = document.getElementById('idList2').value.trim();
+            
+            if (!urlTemplate || !idListText) {
+                alert('Please fill in both URL template and ID list');
+                return;
+            }
+            
+            const idList = idListText.split('\n').map(id => id.trim()).filter(id => id);
+            const linkContainer = document.getElementById('linkContainer');
+            
+            linkContainer.innerHTML = '<h3>Generated Links:</h3>';
+            
+            idList.forEach(id => {
+                const url = urlTemplate.replace('{id}', id);
+                const linkDiv = document.createElement('div');
+                linkDiv.style.marginBottom = '10px';
+                linkDiv.innerHTML = `
+                    <a href="${url}" target="_blank" download="${id}.jpg" style="color: #007bff; text-decoration: none;">
+                        📥 Download ${id}
+                    </a>
+                    <span style="margin-left: 10px; color: #6c757d; font-size: 12px;">${url}</span>
+                `;
+                linkContainer.appendChild(linkDiv);
+            });
+            
+            document.getElementById('openAllBtn').style.display = 'inline-block';
+        }
+
+        function openAllTabs() {
+            const urlTemplate = document.getElementById('urlTemplate2').value.trim();
+            const idListText = document.getElementById('idList2').value.trim();
+            const idList = idListText.split('\n').map(id => id.trim()).filter(id => id);
+            
+            idList.forEach((id, index) => {
+                setTimeout(() => {
+                    const url = urlTemplate.replace('{id}', id);
+                    window.open(url, '_blank');
+                }, index * 500); // Delay to avoid browser popup blocking
+            });
+        }
+
+        function generateConsoleScript() {
+            const urlTemplate = document.getElementById('urlTemplate3').value.trim();
+            const idListText = document.getElementById('idList3').value.trim();
+            
+            if (!urlTemplate || !idListText) {
+                alert('Please fill in both URL template and ID list');
+                return;
+            }
+            
+            const idList = idListText.split(',').map(id => id.trim()).filter(id => id);
+            
+            const script = `
+// Image Downloader Script - Paste in Console
+(async function() {
+    const idList = ${JSON.stringify(idList)};
+    const urlTemplate = "${urlTemplate}";
+    
+    for (const id of idList) {
+        try {
+            const url = urlTemplate.replace('{id}', id);
+            const response = await fetch(url);
+            const blob = await response.blob();
+            
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = id + '.jpg';
+            a.click();
+            
+            console.log('Downloaded:', id);
+            await new Promise(r => setTimeout(r, 1000));
+        } catch (e) {
+            console.error('Failed:', id, e);
+        }
+    }
+    console.log('Download complete!');
+})();`;
+            
+            const scriptContainer = document.getElementById('consoleScript');
+            scriptContainer.innerHTML = `
+                <div class="code">${script.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                <button class="btn btn-secondary" onclick="copyToClipboard(\`${script.replace(/`/g, '\\`')}\`)">Copy Script</button>
+                <div style="margin-top: 10px; font-size: 12px; color: #6c757d;">
+                    Instructions: Navigate to the target website, open Developer Tools (F12), go to Console tab, paste this script and press Enter.
+                </div>
+            `;
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Script copied to clipboard!');
+            });
+        }
+    </script>
+</body>
+</html>

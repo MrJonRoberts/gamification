@@ -1,0 +1,888 @@
+{% extends "base.html" %}
+{% block head %}
+  <!-- Local assets expected in ./vendor; CDN fallbacks only for preview -->
+  <link rel="stylesheet" href="{{url_for('static', filename='vendor/bootstrap.min.css')}}" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+  <style>
+    :root { --brand:#0d6efd; --bg-muted:#f8f9fa; }
+    body { background: var(--bg-muted); }
+    .navbar { box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+    .time-big { font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+    .time-xxl { font-size: clamp(2.2rem, 6vw, 5rem); font-weight: 700; }
+    .row-drag-handle { cursor: ns-resize; user-select: none; }
+    .progress { height: 1rem; }
+    .progress-lg { height: 1.25rem; }
+    .sticky-actions { position: sticky; top: .5rem; }
+    .muted-small { color: #6c757d; font-size: .9rem; }
+
+    /* Current block badge — larger + neutral default; JS recolors to the block's color */
+    .block-badge {
+      font-size: clamp(1rem, 2.2vw, 1.25rem);
+      padding: .4rem .75rem;
+      border-radius: .75rem;
+      border: 1px solid rgba(0,0,0,.15);
+      background: #f8f9fa;
+      color: #212529;
+      display: inline-block;
+    }
+
+    /* Draggable clock styles */
+    #clockPanel { transition: box-shadow .2s ease; }
+    #clockPanel.draggable-fixed { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1080; width: min(840px, 94vw); }
+    #clockPanel.dragging { box-shadow: 0 0 0 3px rgba(13,110,253,.25); cursor: move; }
+    .clock-handle { position: absolute; right: .5rem; top: .5rem; padding: .15rem .5rem; background: rgba(0,0,0,.06); border: 1px solid rgba(0,0,0,.08); border-radius: .5rem; font-size: .8rem; cursor: move; user-select: none; }
+
+    /* Slimline upcoming chips */
+    .upcoming-chips { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.25rem .5rem; border-radius:999px; background:#f1f3f5; border:1px solid #e9ecef; font-size:.85rem; line-height:1; }
+    .chip .swatch { width:.75rem; height:.75rem; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
+    .chip .dur { opacity:.75; }
+    .chip.current { background:#e7f1ff; border-color:#cfe2ff; }
+    .chip.done { opacity:.6; }
+
+    /* Paused mask */
+    .paused-mask { display:none; position:absolute; inset:0; background:rgba(255,255,255,.65); backdrop-filter: blur(1px); align-items:center; justify-content:center; border-radius:.5rem; }
+    .paused-mask.show { display:flex; }
+    .paused-badge { font-weight:700; font-size:1rem; letter-spacing:.06em; padding:.4rem .75rem; border-radius:999px; background:#ffe69c; border:1px solid #ffda6a; color:#664d03; }
+    .click-hint { font-size:.85rem; color:#6c757d; }
+    .clickable { cursor: pointer; }
+  </style>
+{% endblock %}
+{% block content %}
+
+  <!-- Top Navigation -->
+<!--  <nav class="navbar navbar-expand-lg navbar-light bg-white fixed-top">-->
+<nav class="navbar navbar-expand-lg navbar-light bg-white fixed-top navbar-sub border-bottom">
+    <div class="container-fluid">
+      <a class="navbar-brand fw-bold" href="#">⏱️ JRO Multi Timer</a>
+      <div class="d-flex gap-2 ms-auto">
+        <div class="btn-group" role="group" aria-label="Timer controls">
+          <button id="btnStart" class="btn btn-success">Start</button>
+          <button id="btnPauseToggle" class="btn btn-outline-primary" disabled>Pause</button>
+          <button id="btnStop" class="btn btn-outline-danger" disabled>Stop</button>
+          <button id="btnReset" class="btn btn-outline-secondary" disabled>Reset</button>
+        </div>
+        <div class="btn-group" role="group" aria-label="Extra time">
+          <button type="button" class="btn btn-outline-dark dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+            +/- Time
+          </button>
+          <ul id="extraTimeMenu" class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item extra-time" data-mins="1" href="#">+1 minute</a></li>
+            <li><a class="dropdown-item extra-time" data-mins="5" href="#">+5 minutes</a></li>
+            <li><a class="dropdown-item extra-time" data-mins="10" href="#">+10 minutes</a></li>
+           <li><a class="dropdown-item extra-time" data-mins="-1" href="#">-1 minute</a></li>
+            <li><a class="dropdown-item extra-time" data-mins="-5" href="#">-5 minutes</a></li>
+            <li><a class="dropdown-item extra-time" data-mins="-10" href="#">-10 minutes</a></li>
+
+            </ul>
+        </div>
+        <button id="btnMute" class="btn btn-outline-secondary" title="Toggle sound">🔔</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container" style="padding-top: 5.5rem; padding-bottom: 2rem;">
+    <div class="row g-4">
+      <!-- Live Timer Panel (draggable) -->
+      <div class="col-12 col-lg-4 order-lg-2">
+        <div id="clockPanel" class="card shadow-sm">
+          <div class="card-body position-relative">
+            <div class="paused-mask" id="pausedMask">
+              <span class="paused-badge">PAUSED</span>
+            </div>
+            <div id="clockHandle" class="clock-handle" title="Drag the clock">↕ drag</div>
+            <h4 id="timerTitle" class="text-center mb-2"></h4>
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <div>
+                <span class="block-badge" id="currentBlockBadge">Not started</span>
+              </div>
+              <div class="text-end">
+                <div class="muted-small">Ends at</div>
+                <div class="fw-semibold" id="endsAt">—</div>
+              </div>
+            </div>
+
+            <div class="display-1 time-big time-xxl text-center clickable" id="timeRemaining" title="Click to pause/unpause">00:00:00</div>
+            <div class="text-center mt-1 click-hint">Click the time or press <kbd>Space</kbd> to pause/unpause</div>
+
+            <div class="mt-3">
+              <div class="d-flex justify-content-between muted-small mb-1">
+                <span>Current block</span>
+                <span id="currentPct">0%</span>
+              </div>
+              <div class="progress progress-lg" role="progressbar" aria-label="Current block progress" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-bar" id="currentProgress" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <div class="d-flex justify-content-between muted-small mb-1">
+                <span>Overall</span>
+                <span id="overallPct">0%</span>
+              </div>
+              <div class="progress" role="progressbar" aria-label="Overall progress" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-bar bg-success" id="overallProgress" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <div class="mt-3 row g-2">
+              <div class="col-6">
+                <div class="border rounded p-2 bg-light">
+                  <div class="muted-small">Next</div>
+                  <div class="fw-semibold" id="nextBlock">—</div>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="border rounded p-2 bg-light">
+                  <div class="muted-small">Total remaining</div>
+                  <div class="fw-semibold" id="totalRemaining">—</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Slimline Upcoming, inside the clock -->
+            <div class="mt-3">
+              <div class="d-flex justify-content-between align-items-center muted-small mb-1">
+                <span>Upcoming</span>
+                <span id="upcomingSummary"></span>
+              </div>
+              <div id="upcomingInline" class="upcoming-chips"></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Setup Panel (wider) -->
+      <div id="setupPanel" class="col-12 col-lg-8 order-lg-1">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+              <div>
+                <h5 class="card-title mb-1">Setup</h5>
+                <div class="muted-small">Define your blocks (Perusal, Reading, Exam, Other). Durations support seconds (0/15/30/45).</div>
+              </div>
+              <div class="sticky-actions">
+                <button id="btnAddBlock" class="btn btn-outline-primary btn-sm">Add block</button>
+                <button id="btnPreset" class="btn btn-outline-secondary btn-sm" title="Perusal 10m, Reading 5m, Exam 120m">Quick preset</button>
+                <button id="btnSave" class="btn btn-outline-success btn-sm" title="Save setup to this browser">Save</button>
+                <button id="btnLoad" class="btn btn-outline-dark btn-sm" title="Load saved setup">Load</button>
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label for="timerName" class="form-label">Timer name</label>
+              <input id="timerName" class="form-control" placeholder="e.g., Year 12 Maths — Term 3 Exam" />
+            </div>
+
+            <div class="table-responsive">
+              <table class="table table-hover align-middle" id="tblBlocks">
+                <thead>
+                  <tr>
+                    <th style="width:2.5rem;" class="text-center">#</th>
+                    <th style="min-width:10rem;">Name</th>
+                    <th style="width:9rem;">Minutes</th>
+                    <th style="width:8rem;">Seconds</th>
+                    <th style="width:8rem;">Label</th>
+                    <th style="width:10rem;" class="text-end">Actions</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <div class="alert alert-info d-flex align-items-start gap-2" role="alert">
+              <div>💡</div>
+              <div>
+                <strong>Tip:</strong> Use the up/down arrows to reorder. Press <em>Start</em> to run through your blocks in order.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-center text-muted mt-3">
+          <small>Made with ♥ for exam rooms. Works offline once loaded.</small>
+        </div>
+      </div>
+    </div>
+  </main>
+{% endblock %}
+{% block scripts %}
+  <!-- Local first -->
+  <script src="{{url_for('static', filename='vendor/jquery-3.7.1.min.js')}}"></script>
+  <script src="{{url_for('static', filename='vendor/bootstrap.bundle.min.js')}}"></script>
+  <!-- Fallback for preview -->
+<!--  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>-->
+<!--  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>-->
+  <script>
+  (function() {
+    // ------- State -------
+    const LS_KEY = 'examTimer.blocks.v1';
+    const POS_KEY = 'examTimer.clockPos.v1';
+    let blocks = []; // [{id, name, minutes, seconds, color}]
+    let timerName = '';
+
+    let state = 'idle'; // idle|running|paused|stopped|finished
+    let timerId = null;
+    let idx = -1; // current block index
+    let currentEndsAt = 0; // timestamp ms
+    let blockTotalMs = 0;   // includes extra time
+    let pausedRemainingMs = 0;
+    let overallTotalMs = 0; // includes extras
+    let startedAt = 0;      // timestamp ms
+    let mute = false;
+
+    // audio context (lazy)
+    let audioCtx = null;
+
+    // ------- Utils -------
+    function uuid() { return 'b'+Math.random().toString(36).slice(2,10); }
+    function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+    function formatHMS(ms) {
+      ms = Math.max(0, Math.floor(ms));
+      const totalSec = Math.floor(ms / 1000);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      const hh = h.toString().padStart(2,'0');
+      const mm = m.toString().padStart(2,'0');
+      const ss = s.toString().padStart(2,'0');
+      return `${hh}:${mm}:${ss}`;
+    }
+    function fmtClock(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    function fmtMinSec(mins, secs) {
+      const m = Math.max(0, Math.floor(+mins || 0));
+      const s = Math.max(0, Math.floor(+secs || 0)) % 60;
+      return `${m}:${s.toString().padStart(2,'0')}`;
+    }
+    function blockMs(b) {
+      const m = Math.max(0, Math.floor(+b.minutes || 0));
+      const s = Math.max(0, Math.floor(+b.seconds || 0));
+      return m*60_000 + s*1_000;
+    }
+    function sumMs(arr) { return arr.reduce((a,b)=>a + blockMs(b), 0); }
+
+    // Color helpers
+    function hexToRgb(hex) {
+      if (!hex) return {r:255,g:255,b:255};
+      hex = hex.replace('#','');
+      if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+      const num = parseInt(hex, 16);
+      return { r:(num>>16)&255, g:(num>>8)&255, b:num&255 };
+    }
+    function contrastText(hex) {
+      const {r,g,b} = hexToRgb(hex);
+      // YIQ luma
+      const yiq = (r*299 + g*587 + b*114) / 1000;
+      return yiq >= 140 ? '#000' : '#fff';
+    }
+    function shade(hex, percent) { // percent in [-100,100]
+      const {r,g,b} = hexToRgb(hex);
+      const t = percent < 0 ? 0 : 255;
+      const p = Math.abs(percent) / 100;
+      const R = Math.round((t - r)*p + r);
+      const G = Math.round((t - g)*p + g);
+      const B = Math.round((t - b)*p + b);
+      return '#' + [R,G,B].map(x=>x.toString(16).padStart(2,'0')).join('');
+    }
+
+    function beep(pattern='start') {
+      if (mute) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = audioCtx;
+        const now = ctx.currentTime;
+        function tone(f, t0, dur, type='sine', vol=0.1) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = type; o.frequency.setValueAtTime(f, now + t0);
+          o.connect(g); g.connect(ctx.destination);
+          g.gain.setValueAtTime(vol, now + t0);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + t0 + dur);
+          o.start(now + t0); o.stop(now + t0 + dur);
+        }
+        if (pattern === 'start') { tone(880, 0, .25, 'square'); tone(1175, .1, .25, 'square'); }
+        if (pattern === 'next')  { tone(988, 0, .18, 'sine'); }
+        if (pattern === 'end')   { tone(523, 0, .25, 'sawtooth'); tone(392, .12, .4, 'sawtooth'); }
+      } catch { /* ignore */ }
+    }
+
+    function saveSetup() {
+      try { localStorage.setItem(LS_KEY, JSON.stringify({ name: timerName, blocks })); } catch {}
+    }
+    function loadSetup() {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            blocks = parsed;
+            timerName = '';
+          } else if (parsed && typeof parsed === 'object') {
+            blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+            timerName = typeof parsed.name === 'string' ? parsed.name : '';
+          }
+          // migrate existing blocks to have seconds
+          blocks.forEach(b => { if (typeof b.seconds !== 'number') b.seconds = 0; });
+        }
+      } catch {}
+    }
+
+    // ------- Draggable Clock -------
+    const drag = { active:false, offsetX:0, offsetY:0 };
+    function applySavedClockPos() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+        const el = document.getElementById('clockPanel');
+        if (!el) return;
+        if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+          el.classList.add('draggable-fixed');
+          el.style.transform = 'none';
+          el.style.left = saved.left + 'px';
+          el.style.top = saved.top + 'px';
+        }
+      } catch {}
+    }
+    function centerClock() {
+      const el = document.getElementById('clockPanel');
+      if (!el) return;
+      el.classList.add('draggable-fixed');
+      el.style.left = '50%';
+      el.style.top = '50%';
+      el.style.transform = 'translate(-50%, -50%)';
+      try { localStorage.removeItem(POS_KEY); } catch {}
+    }
+    function dockClock() {
+      const el = document.getElementById('clockPanel');
+      if (!el) return;
+      el.classList.remove('draggable-fixed','dragging');
+      el.style.left = el.style.top = '';
+      el.style.transform = '';
+    }
+    function startDrag(e) {
+      const el = document.getElementById('clockPanel');
+      if (!el) return;
+      if (!el.classList.contains('draggable-fixed')) {
+        el.classList.add('draggable-fixed');
+        // initialize position at current rect
+        const r = el.getBoundingClientRect();
+        el.style.left = r.left + 'px';
+        el.style.top = r.top + 'px';
+        el.style.transform = 'none';
+      }
+      const rect = el.getBoundingClientRect();
+      const pt = e.touches ? e.touches[0] : e;
+      drag.active = true;
+      drag.offsetX = pt.clientX - rect.left;
+      drag.offsetY = pt.clientY - rect.top;
+      el.classList.add('dragging');
+      e.preventDefault();
+    }
+    function onDrag(e) {
+      if (!drag.active) return;
+      const el = document.getElementById('clockPanel');
+      const pt = e.touches ? e.touches[0] : e;
+      let left = pt.clientX - drag.offsetX;
+      let top = pt.clientY - drag.offsetY;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const r = el.getBoundingClientRect();
+      left = Math.max(8, Math.min(vw - r.width - 8, left));
+      top = Math.max(56, Math.min(vh - r.height - 8, top)); // avoid navbar
+      el.style.left = left + 'px';
+      el.style.top = top + 'px';
+      el.style.transform = 'none';
+      try { localStorage.setItem(POS_KEY, JSON.stringify({ left, top })); } catch {}
+    }
+    function endDrag() {
+      drag.active = false;
+      const el = document.getElementById('clockPanel');
+      if (el) el.classList.remove('dragging');
+    }
+
+    // ------- UI Rendering -------
+    function renderBlocks() {
+      const $tb = $('#tblBlocks tbody');
+      $tb.empty();
+      blocks.forEach((b, i) => {
+        const row = $(
+          `<tr data-id="${b.id}">
+            <td class="text-center"><span class="row-drag-handle">⠿</span></td>
+            <td>
+              <select class="form-select form-select-sm mb-1 block-name-select" aria-label="Block name">
+                <option ${b.name==='Perusal'?'selected':''}>Perusal</option>
+                <option ${b.name==='Reading'?'selected':''}>Reading</option>
+                <option ${b.name==='Exam'?'selected':''}>Exam</option>
+                <option ${b.name==='Other'?'selected':''}>Other</option>
+                <option ${['Perusal','Reading','Exam','Other'].includes(b.name)?'':'selected'} value="Custom">Custom…</option>
+              </select>
+              <input class="form-control form-control-sm block-name-custom ${['Perusal','Reading','Exam','Other'].includes(b.name)?'d-none':''}" value="${['Perusal','Reading','Exam','Other'].includes(b.name)?'':b.name}" placeholder="Custom name"/>
+            </td>
+            <td>
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control block-minutes" min="0" step="1" value="${Math.max(0, Math.floor(+b.minutes||0))}" />
+                <span class="input-group-text">min</span>
+              </div>
+            </td>
+            <td>
+              <select class="form-select form-select-sm block-seconds" aria-label="Seconds (0/15/30/45)">
+                <option value="0"  ${(+b.seconds||0)===0?'selected':''}>0</option>
+                <option value="15" ${(+b.seconds||0)===15?'selected':''}>15</option>
+                <option value="30" ${(+b.seconds||0)===30?'selected':''}>30</option>
+                <option value="45" ${(+b.seconds||0)===45?'selected':''}>45</option>
+              </select>
+            </td>
+            <td>
+              <input type="color" class="form-control form-control-color form-control-sm block-color" value="${b.color}" title="Pick label color"/>
+            </td>
+            <td class="text-end">
+              <div class="btn-group btn-group-sm" role="group">
+                <button class="btn btn-outline-secondary btn-up" title="Move up">▲</button>
+                <button class="btn btn-outline-secondary btn-down" title="Move down">▼</button>
+                <button class="btn btn-outline-danger btn-del" title="Delete">Delete</button>
+              </div>
+            </td>
+          </tr>`
+        );
+        $tb.append(row);
+      });
+      if (blocks.length === 0) {
+        $tb.append(`<tr class="text-muted"><td colspan="6">No blocks yet. Click <em>Add block</em> or try the <em>Quick preset</em>.</td></tr>`);
+      }
+      refreshUpcoming();
+      refreshTotals();
+    }
+
+    function refreshTotals() {
+      const totalMs = sumMs(blocks);
+      $('#totalRemaining').text(formatHMS(totalMs));
+    }
+
+    function refreshUpcoming() {
+      const $wrap = $('#upcomingInline');
+      $wrap.empty();
+      if (!blocks.length) return;
+      blocks.forEach((b, i) => {
+        const chip = $(
+          `<span class="chip" title="${i < idx ? 'Finished' : (i===idx ? 'Current' : 'Upcoming')}">
+            <span class="swatch" style="background:${b.color}"></span>
+            <span class="label">${b.name}</span>
+            <span class="dur">${fmtMinSec(b.minutes, b.seconds)}</span>
+          </span>`
+        );
+        if (i < idx) chip.addClass('done');
+        if (i === idx) chip.addClass('current');
+        $wrap.append(chip);
+      });
+      $('#upcomingSummary').text(`${blocks.length} block${blocks.length===1?'':'s'}`);
+    }
+
+    function setNavbarButtons() {
+      $('#btnStart').prop('disabled', state !== 'idle' || blocks.length === 0 || blocks.every(b=>blockMs(b)===0));
+      const toggle = $('#btnPauseToggle');
+      if (state === 'running') {
+        toggle.prop('disabled', false).text('Pause').removeClass('btn-primary').addClass('btn-outline-primary');
+      } else if (state === 'paused') {
+        toggle.prop('disabled', false).text('Unpause').removeClass('btn-outline-primary').addClass('btn-primary');
+      } else {
+        toggle.prop('disabled', true).text('Pause').removeClass('btn-primary').addClass('btn-outline-primary');
+      }
+      $('#btnStop').prop('disabled', !(state === 'running' || state === 'paused'));
+      $('#btnReset').prop('disabled', !(state === 'paused' || state === 'stopped' || state === 'finished'));
+      $('#pausedMask').toggleClass('show', state === 'paused');
+    }
+
+    function updateTitleAndBadges(currentName, remainMs) {
+      const t = formatHMS(remainMs);
+      if (state === 'running' || state === 'paused') {
+        document.title = `⏱ ${timerName ? timerName + ' · ' : ''}${currentName} · ${t}`;
+      } else {
+        document.title = timerName ? `⏱ ${timerName}` : 'Exam Timer';
+      }
+      $('#currentBlockBadge').text(currentName || 'Not started');
+    }
+
+    function styleCurrentBadge() {
+      const badge = $('#currentBlockBadge');
+      const b = (idx >= 0 && idx < blocks.length) ? blocks[idx] : null;
+      if (!b) {
+        badge.css({ backgroundColor:'', color:'', borderColor:'' });
+        return;
+      }
+      const bg = b.color || '#0d6efd';
+      const fg = contrastText(bg);
+      const br = shade(bg, -25);
+      badge.css({ backgroundColor: bg, color: fg, borderColor: br });
+    }
+
+    function updateEndsAt(ts) { $('#endsAt').text(fmtClock(ts)); }
+
+    function repaintProgress(remainMs) {
+      const elapsed = blockTotalMs - remainMs;
+      const pct = blockTotalMs ? clamp((elapsed / blockTotalMs) * 100, 0, 100) : 0;
+      $('#currentPct').text(`${pct.toFixed(0)}%`);
+      $('#currentProgress').css('width', pct + '%');
+
+      const elapsedOverall = overallTotalMs - totalRemainingMs();
+      const overallPct = overallTotalMs ? clamp((elapsedOverall / overallTotalMs) * 100, 0, 100) : 0;
+      $('#overallPct').text(`${overallPct.toFixed(0)}%`);
+      $('#overallProgress').css('width', overallPct + '%');
+    }
+
+    function updateSetupVisibility() {
+      $('#setupPanel').toggleClass('d-none', state === 'running');
+    }
+    function setTimerNameInUI() {
+      $('#timerTitle').text(timerName || '');
+      $('#timerName').val(timerName);
+    }
+
+    function totalRemainingMs() {
+      if (state === 'idle') return sumMs(blocks);
+      let ms = 0;
+      if (idx >= 0 && idx < blocks.length) {
+        if (state === 'paused') {
+          ms += pausedRemainingMs;
+        } else {
+          ms += Math.max(0, currentEndsAt - Date.now());
+        }
+      }
+      for (let i = idx + 1; i < blocks.length; i++) ms += blockMs(blocks[i]);
+      return ms;
+    }
+
+    function tick() {
+      if (state !== 'running') return;
+      const now = Date.now();
+      let remain = currentEndsAt - now;
+      if (remain <= 0) {
+        finishCurrentBlock();
+        return;
+      }
+      $('#timeRemaining').text(formatHMS(remain));
+      updateEndsAt(currentEndsAt);
+      updateTitleAndBadges(blocks[idx]?.name || '—', remain);
+      styleCurrentBadge();
+      repaintProgress(remain);
+      refreshUpcoming();
+    }
+
+    function finishCurrentBlock() {
+      if (idx < 0) return;
+      refreshUpcoming();
+      beep(idx + 1 < blocks.length ? 'next' : 'end');
+      idx++;
+      if (idx >= blocks.length) {
+        clearInterval(timerId); timerId = null;
+        state = 'finished';
+        setNavbarButtons();
+        updateSetupVisibility();
+        $('#timeRemaining').text('00:00:00');
+        $('#currentBlockBadge').text('Finished').css({ backgroundColor:'', color:'', borderColor:'' });
+        updateEndsAt(0);
+        repaintProgress(0);
+        refreshUpcoming();
+        $('#nextBlock').text('—');
+        return;
+      }
+      startBlock(idx);
+    }
+
+    function startBlock(i) {
+      const b = blocks[i];
+      blockTotalMs = Math.max(0, blockMs(b));
+      currentEndsAt = Date.now() + blockTotalMs;
+      $('#timeRemaining').text(formatHMS(blockTotalMs));
+      updateEndsAt(currentEndsAt);
+      updateTitleAndBadges(b.name, blockTotalMs);
+      styleCurrentBadge();
+      repaintProgress(blockTotalMs);
+      refreshUpcoming();
+      $('#nextBlock').text(blocks[i+1]?.name || '—');
+    }
+
+    function startTimer() {
+      if (!blocks.length || blocks.every(b => blockMs(b) === 0)) return;
+      blocks.forEach(b => {
+        b.minutes = Math.max(0, Math.floor(+b.minutes || 0));
+        b.seconds = [0,15,30,45].includes(+b.seconds) ? +b.seconds : 0;
+      });
+      overallTotalMs = sumMs(blocks);
+      startedAt = Date.now();
+      state = 'running';
+      idx = 0;
+      centerClock();
+      startBlock(idx);
+      setNavbarButtons();
+      updateSetupVisibility();
+      if (timerId) clearInterval(timerId);
+      timerId = setInterval(tick, 200);
+      beep('start');
+    }
+
+    function pauseTimer() {
+      if (state !== 'running') return;
+      pausedRemainingMs = Math.max(0, currentEndsAt - Date.now());
+      clearInterval(timerId); timerId = null;
+      state = 'paused';
+      setNavbarButtons();
+      updateSetupVisibility();
+      updateTitleAndBadges((blocks[idx]?.name || '—') + ' (paused)', pausedRemainingMs);
+      styleCurrentBadge();
+      updateEndsAt(Date.now() + pausedRemainingMs);
+      $('#timeRemaining').text(formatHMS(pausedRemainingMs));
+      repaintProgress(pausedRemainingMs);
+    }
+
+    function resumeTimer() {
+      if (state !== 'paused') return;
+      currentEndsAt = Date.now() + pausedRemainingMs;
+      pausedRemainingMs = 0;
+      state = 'running';
+      setNavbarButtons();
+      updateSetupVisibility();
+      styleCurrentBadge();
+      timerId = setInterval(tick, 200);
+      tick();
+    }
+
+    function stopTimer() {
+      if (!(state === 'running' || state === 'paused')) return;
+      clearInterval(timerId); timerId = null;
+      state = 'stopped';
+      setNavbarButtons();
+      updateSetupVisibility();
+      $('#currentBlockBadge').text('Stopped').css({ backgroundColor:'', color:'', borderColor:'' });
+      updateTitleAndBadges('Stopped', 0);
+      updateEndsAt(0);
+    }
+
+    function resetTimer() {
+      clearInterval(timerId); timerId = null;
+      state = 'idle'; idx = -1; currentEndsAt = 0; blockTotalMs = 0; pausedRemainingMs = 0; overallTotalMs = sumMs(blocks);
+      setNavbarButtons();
+      updateSetupVisibility();
+      dockClock();
+      $('#currentPct').text('0%');
+      $('#currentProgress').css('width', '0%');
+      $('#overallPct').text('0%');
+      $('#overallProgress').css('width', '0%');
+      $('#timeRemaining').text('00:00:00');
+      $('#currentBlockBadge').text('Not started').css({ backgroundColor:'', color:'', borderColor:'' });
+      $('#endsAt').text('—');
+      $('#nextBlock').text(blocks[0]?.name || '—');
+      $('#totalRemaining').text(formatHMS(sumMs(blocks)));
+      refreshUpcoming();
+      document.title = timerName ? `⏱ ${timerName}` : 'Exam Timer';
+    }
+
+    function addExtraTime(ms) {
+      if (!(state === 'running' || state === 'paused')) return;
+      if (idx < 0 || idx >= blocks.length) return;
+      blockTotalMs += ms;
+      overallTotalMs += ms;
+      if (state === 'running') {
+        currentEndsAt += ms;
+        tick();
+      } else {
+        pausedRemainingMs += ms;
+        $('#timeRemaining').text(formatHMS(pausedRemainingMs));
+        updateEndsAt(Date.now() + pausedRemainingMs);
+        updateTitleAndBadges((blocks[idx]?.name || '—') + ' (paused)', pausedRemainingMs);
+        repaintProgress(pausedRemainingMs);
+      }
+    }
+
+    // ------- Event Wiring -------
+    function isTypingTarget(el) {
+      if (!el) return false;
+      const tag = el.tagName?.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+    }
+
+    function wireTableEvents() {
+      $('#tblBlocks').on('change', '.block-name-select', function() {
+        const $row = $(this).closest('tr');
+        const id = $row.data('id');
+        const val = $(this).val();
+        if (val === 'Custom') {
+          $row.find('.block-name-custom').removeClass('d-none').focus();
+        } else {
+          $row.find('.block-name-custom').addClass('d-none');
+          const b = blocks.find(x => x.id === id); if (b) b.name = val;
+          refreshUpcoming(); saveSetup();
+        }
+      });
+      $('#tblBlocks').on('input', '.block-name-custom', function() {
+        const $row = $(this).closest('tr');
+        const id = $row.data('id');
+        const b = blocks.find(x => x.id === id); if (b) b.name = $(this).val() || 'Custom';
+        refreshUpcoming(); saveSetup();
+      });
+      $('#tblBlocks').on('change', '.block-minutes', function() {
+        const $row = $(this).closest('tr');
+        const id = $row.data('id');
+        const b = blocks.find(x => x.id === id); if (b) b.minutes = Math.max(0, Math.floor(+$(this).val() || 0));
+        refreshTotals(); refreshUpcoming(); saveSetup(); setNavbarButtons();
+      });
+      $('#tblBlocks').on('change', '.block-seconds', function() {
+        const $row = $(this).closest('tr');
+        const id = $row.data('id');
+        const v = +$(this).val();
+        const allowed = [0,15,30,45];
+        const b = blocks.find(x => x.id === id);
+        if (b) b.seconds = allowed.includes(v) ? v : 0;
+        refreshTotals(); refreshUpcoming(); saveSetup(); setNavbarButtons();
+      });
+      $('#tblBlocks').on('change', '.block-color', function() {
+        const $row = $(this).closest('tr');
+        const id = $row.data('id');
+        const b = blocks.find(x => x.id === id); if (b) b.color = $(this).val();
+        refreshUpcoming(); saveSetup();
+        if (idx >= 0 && blocks[idx] && blocks[idx].id === id) styleCurrentBadge();
+      });
+      $('#tblBlocks').on('click', '.btn-del', function() {
+        const id = $(this).closest('tr').data('id');
+        blocks = blocks.filter(b => b.id !== id);
+        renderBlocks(); saveSetup(); setNavbarButtons();
+      });
+      $('#tblBlocks').on('click', '.btn-up', function() {
+        const id = $(this).closest('tr').data('id');
+        const i = blocks.findIndex(b => b.id === id);
+        if (i > 0) { const t = blocks[i-1]; blocks[i-1] = blocks[i]; blocks[i] = t; renderBlocks(); saveSetup(); }
+      });
+      $('#tblBlocks').on('click', '.btn-down', function() {
+        const id = $(this).closest('tr').data('id');
+        const i = blocks.findIndex(b => b.id === id);
+        if (i >= 0 && i < blocks.length - 1) { const t = blocks[i+1]; blocks[i+1] = blocks[i]; blocks[i] = t; renderBlocks(); saveSetup(); }
+      });
+    }
+
+    function addBlock(name='Perusal', minutes=10, seconds=0, color='#0d6efd') {
+      blocks.push({ id: uuid(), name, minutes: Math.floor(minutes), seconds: Math.floor(seconds)||0, color });
+      renderBlocks(); saveSetup(); setNavbarButtons();
+    }
+
+    function quickPreset() {
+      blocks = [];
+      addBlock('Perusal', 10, 0, '#6f42c1');
+      // addBlock('Reading', 5, 0, '#20c997');
+      addBlock('Exam', 120, 0, '#0d6efd');
+    }
+
+    function init() {
+      loadSetup();
+      if (!blocks.length) quickPreset();
+      renderBlocks();
+      setNavbarButtons();
+      setTimerNameInUI();
+      updateSetupVisibility();
+      $('#nextBlock').text(blocks[0]?.name || '—');
+      $('#totalRemaining').text(formatHMS(sumMs(blocks)));
+
+      wireTableEvents();
+
+      $(document).on('input', '#timerName', function(){
+        timerName = $(this).val().trim();
+        setTimerNameInUI();
+        saveSetup();
+      });
+
+      // top buttons
+      $('#btnAddBlock').on('click', () => addBlock('Other', 15, 0, '#fd7e14'));
+      $('#btnPreset').on('click', quickPreset);
+      $('#btnSave').on('click', saveSetup);
+      $('#btnLoad').on('click', () => { loadSetup(); renderBlocks(); setTimerNameInUI(); updateSetupVisibility(); setNavbarButtons(); });
+
+      $('#btnStart').on('click', startTimer);
+      $('#btnPauseToggle').on('click', () => { if (state === 'running') pauseTimer(); else if (state === 'paused') resumeTimer(); });
+      $('#btnStop').on('click', stopTimer);
+      $('#btnReset').on('click', resetTimer);
+      $('#btnMute').on('click', function() { mute = !mute; $(this).text(mute ? '🔕' : '🔔'); });
+
+      // Extra time (delegated)
+      $(document).on('click', '#extraTimeMenu .extra-time', function (e) {
+        e.preventDefault();
+        const mins = parseInt($(this).data('mins'), 10);
+        if (Number.isFinite(mins)) addExtraTime(mins * 60_000);
+        const toggleBtn = $(this).closest('.btn-group').find('[data-bs-toggle="dropdown"]')[0];
+        if (toggleBtn) bootstrap.Dropdown.getOrCreateInstance(toggleBtn).hide();
+      });
+
+      // Click-to-toggle pause on the big timer
+      $('#timeRemaining').on('click', () => { if (state === 'running') pauseTimer(); else if (state === 'paused') resumeTimer(); });
+
+      // Spacebar toggle (unless typing in inputs)
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.key === ' ') {
+          if (isTypingTarget(document.activeElement)) return;
+          if (state === 'running') { pauseTimer(); e.preventDefault(); }
+          else if (state === 'paused') { resumeTimer(); e.preventDefault(); }
+        }
+      });
+
+      // Draggable handlers
+      const handle = document.getElementById('clockHandle');
+      handle.addEventListener('mousedown', startDrag);
+      window.addEventListener('mousemove', onDrag);
+      window.addEventListener('mouseup', endDrag);
+      handle.addEventListener('touchstart', startDrag, { passive:false });
+      window.addEventListener('touchmove', onDrag, { passive:false });
+      window.addEventListener('touchend', endDrag);
+
+      // If a saved position exists, apply it on load (only while idle)
+      applySavedClockPos();
+    }
+
+    $(init);
+  })();
+  </script>
+
+<style>
+   /* The second navbar is fixed, but shifted down by the first navbar's height */
+  .navbar-sub {
+    top: var(--top-nav-height, 56px);
+    z-index: 1029; /* just under Bootstrap's fixed-top (1030) */
+  }
+
+  /* Make room for both fixed navbars so content isn't hidden behind them */
+  body {
+    /*padding-top: calc(var(--top-nav-height, 56px) + var(--sub-nav-height, 48px));*/
+  }
+</style>
+<script>
+  (function () {
+    function setOffsets() {
+      const top = document.querySelector('.navbar-top');
+      const sub = document.querySelector('.navbar-sub');
+      if (!top || !sub) return;
+
+      const topH = top.getBoundingClientRect().height;
+      document.documentElement.style.setProperty('--top-nav-height', topH + 'px');
+
+      // Temporarily clear body padding to measure sub height accurately
+      const prevPadding = document.body.style.paddingTop;
+      document.body.style.paddingTop = '0px';
+
+      // Place sub under top to get its true height
+      sub.style.top = topH + 'px';
+      const subH = sub.getBoundingClientRect().height;
+      document.documentElement.style.setProperty('--sub-nav-height', subH + 'px');
+
+      // Restore final body padding (room for both bars)
+      document.body.style.paddingTop = (topH + subH) + 'px';
+    }
+
+    // Recalculate on load, resize, and when navbars collapse/expand
+    window.addEventListener('load', setOffsets);
+    window.addEventListener('resize', setOffsets);
+    document.addEventListener('shown.bs.collapse', setOffsets);
+    document.addEventListener('hidden.bs.collapse', setOffsets);
+  })();
+</script>
+{% endblock %}

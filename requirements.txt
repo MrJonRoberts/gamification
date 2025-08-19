@@ -10,3 +10,6 @@ pandas
 openpyxl
 
 Pillow>=10.3.0
+
+requests
+beautifulsoup4

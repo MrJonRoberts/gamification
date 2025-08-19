@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Mark roll · {{ course.name if course is defined else "Course" }}{% endblock %}
+{% block content %}
+<div class="container py-4">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h1 class="h4 mb-0">
+        <i class="fa-solid fa-clipboard-user me-2"></i>
+        Mark roll — {{ course.name if course is defined else "Course" }}
+      </h1>
+      <div class="small text-muted">
+        Lesson:
+        {% set when =
+            lesson.starts_at if lesson is defined and (lesson.starts_at is not none) else
+            (lesson.start_time if lesson.start_time is defined else
+            (lesson.start_at if lesson.start_at is defined else
+            (lesson.date if lesson.date is defined else
+            (lesson.datetime if lesson.datetime is defined else None)))) %}
+        {% if when %}
+          {{ when.strftime("%a %d %b %Y %H:%M") if when.strftime is defined else when }}
+        {% else %}
+          (unscheduled)
+        {% endif %}
+        {% if lesson.location is defined and lesson.location %}
+          · <i class="fa-solid fa-location-dot ms-1 me-1"></i>{{ lesson.location }}
+        {% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-sm btn-outline-secondary"
+         href="{{ url_for('attendance.course_attendance', course_id=course.id) }}">
+        <i class="fa-solid fa-arrow-left me-1"></i> Back
+      </a>
+    </div>
+  </div>
+
+  <form method="post" action="{{ url_for('attendance.mark_attendance', course_id=course.id, lesson_id=lesson.id) }}" id="rollForm">
+    {# CSRF support, whichever style you use #}
+    {% if csrf_token is defined %}
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% elif form is defined and form.csrf_token is defined %}
+      {{ form.csrf_token }}
+    {% endif %}
+
+    <div class="card mb-3">
+      <div class="card-body d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-success btn-sm" id="btnAllPresent">
+          <i class="fa-solid fa-user-check me-1"></i> All Present
+        </button>
+        <button type="button" class="btn btn-warning btn-sm" id="btnAllLate">
+          <i class="fa-solid fa-clock me-1"></i> All Late
+        </button>
+        <button type="button" class="btn btn-danger btn-sm" id="btnAllAbsent">
+          <i class="fa-solid fa-user-xmark me-1"></i> All Absent
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btnClear">
+          <i class="fa-solid fa-eraser me-1"></i> Clear
+        </button>
+
+        <div class="ms-auto d-flex gap-2">
+          <input type="search" class="form-control form-control-sm" placeholder="Filter students…" id="filterInput" style="max-width: 260px;">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="fa-solid fa-floppy-disk me-1"></i> Save
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {% set STATUS = ['PRESENT','ABSENT','LATE','SCHOOL_APPROVED_ABSENT','NO_CLASS_TODAY'] %}
+
+    {% if students and students|length %}
+      <div class="table-responsive">
+        <table class="table align-middle" id="rollTable">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 44px;"></th>
+              <th>Student</th>
+              <th>Email</th>
+              <th style="min-width: 220px;">Status</th>
+              <th>Comment</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in students %}
+              {% set att = attendance_by_student.get(s.id) if attendance_by_student is defined else None %}
+              {% set current = att.status if att is defined and att and att.status else 'PRESENT' %}
+              <tr data-student-row>
+                <td class="text-center">
+                  <img src="{{ s.avatar if s.avatar else url_for('static', filename='img/avatar-default.png') }}"
+                       class="rounded-circle" alt="" width="36" height="36">
+                </td>
+                <td class="fw-semibold">
+                  {{ s.first_name }} {{ s.last_name }}
+                  {% if s.student_code %}
+                    <div class="small text-muted">{{ s.student_code }}</div>
+                  {% endif %}
+                </td>
+                <td class="text-muted small">{{ s.email }}</td>
+                <td>
+                  <select class="form-select form-select-sm" name="status[{{ s.id }}]" data-status>
+                    {% for st in STATUS %}
+                      <option value="{{ st }}" {{ 'selected' if st == current else '' }}>
+                        {{ st.replace('_',' ').title() }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </td>
+                <td>
+                  <input type="text" class="form-control form-control-sm"
+                         name="comment[{{ s.id }}]"
+                         value="{{ att.comment if att is defined and att and att.comment else '' }}"
+                         placeholder="Optional note">
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-warning d-flex">
+        <i class="fa-solid fa-triangle-exclamation me-2 mt-1"></i>
+        <div>No enrolled students found for this lesson.</div>
+      </div>
+    {% endif %}
+
+    <div class="d-flex justify-content-end mt-3">
+      <button type="submit" class="btn btn-primary">
+        <i class="fa-solid fa-floppy-disk me-1"></i> Save
+      </button>
+    </div>
+  </form>
+</div>
+
+{% block scripts %}
+<script>
+  // Bulk buttons
+  const setAll = (value) => {
+    document.querySelectorAll('#rollTable [data-status]').forEach(sel => {
+      sel.value = value;
+    });
+  };
+  document.getElementById('btnAllPresent')?.addEventListener('click', () => setAll('PRESENT'));
+  document.getElementById('btnAllLate')?.addEventListener('click', () => setAll('LATE'));
+  document.getElementById('btnAllAbsent')?.addEventListener('click', () => setAll('ABSENT'));
+  document.getElementById('btnClear')?.addEventListener('click', () => {
+    document.querySelectorAll('#rollTable [data-status]').forEach(sel => sel.selectedIndex = 0);
+    document.querySelectorAll('#rollTable input[type="text"]').forEach(inp => inp.value = '');
+  });
+
+  // Filter
+  const filter = document.getElementById('filterInput');
+  filter?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('#rollTable tbody tr[data-student-row]').forEach(tr => {
+      const text = tr.innerText.toLowerCase();
+      tr.style.display = text.includes(q) ? '' : 'none';
+    });
+  });
+</script>
+{% endblock %}
+{% endblock %}

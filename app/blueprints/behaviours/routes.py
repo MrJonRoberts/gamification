@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app, render_template
 from flask_login import login_required, current_user
 from ...extensions import db
-from ...models import Behaviour, PointLedger, User, Course
+from app.models import Behaviour, PointLedger, User, Course
 from sqlalchemy import func
 
 behaviours_bp = Blueprint("behaviours", __name__)

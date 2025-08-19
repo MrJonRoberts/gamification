@@ -1,0 +1,131 @@
+{# app/templates/schedule/year_setup.html #}
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-4">
+  <h1 class="h4 mb-3">Academic Year Setup — {{ year }}</h1>
+
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+      {% for cat, msg in msgs %}
+        <div class="alert alert-{{ 'warning' if cat == 'message' else cat }} alert-dismissible fade show" role="alert">
+          {{ msg }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% if existing %}
+    <div class="alert alert-success d-flex align-items-center justify-content-between">
+      <div>
+        <strong>{{ year }}</strong> is already configured.
+      </div>
+      <div class="d-flex gap-2">
+        {% if next_url %}
+          <a class="btn btn-sm btn-primary" href="{{ next_url }}">Continue</a>
+        {% endif %}
+        <form method="post" action="{{ url_for('schedule.year_scrape') }}" class="mb-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="year" value="{{ year }}">
+          <input type="hidden" name="next_url" value="{{ next_url }}">
+          <button class="btn btn-sm btn-outline-secondary">Re-scrape</button>
+        </form>
+      </div>
+    </div>
+  {% else %}
+    <div class="alert alert-warning">
+      Academic year <strong>{{ year }}</strong> is not configured.
+    </div>
+  {% endif %}
+
+  {% if not parsed %}
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h6 mb-3">Fetch official QLD term dates</h2>
+        <form method="post" action="{{ url_for('schedule.year_scrape') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="year" value="{{ year }}">
+          <input type="hidden" name="next_url" value="{{ next_url }}">
+          <button class="btn btn-primary">Scrape QLD term dates</button>
+          <span class="text-muted ms-2 small">Stages a JSON file for preview before saving.</span>
+        </form>
+
+        <hr class="my-4">
+
+        <details class="mt-2">
+          <summary>Or upload a JSON file manually</summary>
+          <form class="mt-2" method="post" action="{{ url_for('schedule.year_confirm') }}" onsubmit="return injectUploadedJson(event);">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="hidden" name="next_url" value="{{ next_url }}">
+            <input type="hidden" name="__uploaded_json" id="__uploaded_json">
+            <input type="file" accept="application/json" class="form-control mb-2" id="jsonUpload">
+            <button class="btn btn-outline-secondary">Preview & Confirm</button>
+          </form>
+        </details>
+      </div>
+    </div>
+
+    <script>
+      function injectUploadedJson(e){
+        e.preventDefault();
+        const f = document.getElementById('jsonUpload').files[0];
+        if(!f){ alert('Choose a JSON file first.'); return false; }
+        const r = new FileReader();
+        r.onload = () => {
+          document.getElementById('__uploaded_json').value = r.result;
+          e.target.submit();
+        };
+        r.readAsText(f);
+        return false;
+      }
+    </script>
+  {% else %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <div class="fw-bold">Preview from {{ json_path }}</div>
+            <div class="small text-muted">
+              Source: {{ parsed.source or '—' }} | Last updated: {{ parsed.last_updated or '—' }}
+            </div>
+          </div>
+          <form method="post" action="{{ url_for('schedule.year_scrape') }}" class="mb-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="year" value="{{ year }}">
+            <input type="hidden" name="next_url" value="{{ next_url }}">
+            <button class="btn btn-sm btn-outline-secondary">Re-scrape</button>
+          </form>
+        </div>
+        <hr>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Term</th><th>Start</th><th>End</th><th>Weeks</th><th>Raw</th></tr></thead>
+            <tbody>
+            {% for t in parsed.terms %}
+              <tr>
+                <td>{{ t.number }} ({{ t.name }})</td>
+                <td>{{ t.start_date or '—' }}</td>
+                <td>{{ t.end_date or '—' }}</td>
+                <td>{{ t.weeks or '—' }}</td>
+                <td class="small text-muted">{{ t.raw }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('schedule.year_confirm') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="year" value="{{ year }}">
+      <input type="hidden" name="next_url" value="{{ next_url }}">
+      <button class="btn btn-success">Confirm & Save Year {{ year }}</button>
+      {% if next_url %}
+        <a class="btn btn-link" href="{{ next_url }}">Cancel</a>
+      {% endif %}
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

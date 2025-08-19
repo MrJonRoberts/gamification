@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from wtforms import IntegerField, StringField, SelectField, validators
 from flask_wtf import FlaskForm
 from ...extensions import db
-from ...models import User, PointLedger, Course
+from app.models import User, PointLedger, Course
 
 points_bp = Blueprint("points", __name__)
 

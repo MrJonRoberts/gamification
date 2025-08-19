@@ -1,0 +1,62 @@
+.seating-canvas { overflow: hidden; }
+
+/* smaller card footprint */
+.seat-card {
+  width: 130px;
+  padding: .25rem .25rem .4rem;
+  cursor: grab;
+  user-select: none;
+}
+.seat-card.dragging { opacity: .85; cursor: grabbing; }
+
+.tiny { font-size: .7rem; }
+
+/* small circular avatar */
+.seat-card .avatar {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+}
+
+/* tidy name truncation */
+.seat-card .name {
+  max-width: 95px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* extra-small buttons for lock and +/- */
+.btn-xxs, .btn-group-xxs > .btn {
+  padding: .1rem .35rem;
+  font-size: .7rem;
+  line-height: 1rem;
+}
+.btn-group-xxs > .btn + .btn { margin-left: -1px; }
+
+/* Locked card: green outline */
+.seat-card[data-locked="true"] {
+  border: 2px solid var(--bs-success, #198754);
+  box-shadow: 0 0 0 2px rgba(25,135,84,.15) inset;
+}
+
+/* Name pill defaults and states */
+.seat-card .name {
+  max-width: 95px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: .1rem .35rem;
+  border-radius: 999px;
+  background: #f1f3f5;        /* neutral */
+}
+
+.seat-card .name.pos {
+  background: var(--bs-success-bg-subtle, #d1e7dd);
+  color: var(--bs-success-text-emphasis, #0f5132);
+}
+
+.seat-card .name.neg {
+  background: var(--bs-danger-bg-subtle, #f8d7da);
+  color: var(--bs-danger-text-emphasis, #842029);
+}

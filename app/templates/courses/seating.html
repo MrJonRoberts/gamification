@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Seating Plan — {{ course.name }}{% endblock %}
+{% block head %}
+<meta name="csrf-token" content="{{ csrf_token() }}">
+{% endblock %}
+{% block content %}
+
+<div class="container-fluid py-3">
+    <div class="d-flex align-items-center gap-2 mb-2">
+        <h1 class="h4 mb-0">Seating Plan · {{ course.name }} ({{ course.semester }} {{ course.year }})</h1>
+        <div class="ms-auto d-flex gap-2">
+            <button id="unlockAll" class="btn btn-sm btn-outline-secondary">Unlock all</button>
+            <button id="lockAll" class="btn btn-sm btn-secondary">Lock all</button>
+            <button id="resetLayout" class="btn btn-sm btn-outline-danger">Reset layout</button>
+        </div>
+    </div>
+
+    <div class="alert alert-light border small">
+        Drag the cards to arrange your room. Click the lock to freeze a card.
+        Use +/– to adjust behaviour (saved per course) and see the running total.
+    </div>
+
+    <div id="seating-canvas" class="seating-canvas position-relative border rounded"
+         style="height:70vh; min-height:480px; background:#f8f9fa;">
+        {% for u in users %}
+        {% set pos = pos_map.get(u.id) %}
+        {% set total = totals.get(u.id, 0) %}
+        <div class="seat-card card shadow-sm position-absolute"
+             data-user-id="{{ u.id }}"
+             style="left: {{ (pos.x if pos else loop.index0 * 16) | default(0) }}px;
+            top:  {{ (pos.y if pos else loop.index0 * 16) | default(0) }}px;"
+             data-locked="{{ 'true' if pos and pos.locked else 'false' }}">
+
+            <!-- Row 1: NAME | lock -->
+            <div class="px-2 pt-2 d-flex align-items-center justify-content-between">
+                <div class="name text-truncate fw-semibold small" title="{{ u.first_name }} {{ u.last_name }}">
+                    {{ u.first_name }} {{ u.last_name }}
+                </div>
+                <button class="btn btn-xxs btn-outline-secondary lock-btn" title="Lock/unlock">
+                    <i class="fa {{ 'fa-lock' if pos and pos.locked else 'fa-unlock' }}"></i>
+                </button>
+            </div>
+
+            <!-- Row 2: avatar (centered) -->
+            <div class="py-2 text-center">
+                <img
+                        src="{{ (u.avatar|default('', true)) or url_for('static', filename='img/default_user.png') }}"
+                        class="avatar rounded-circle mx-auto d-block"
+                        alt="avatar"
+                        onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/default_user.png') }}';"
+                >
+            </div>
+
+            <!-- Row 3: +/– | points -->
+            <div class="px-2 pb-2 d-flex align-items-center justify-content-between">
+                <div class="btn-group btn-group-xxs" role="group" aria-label="Behaviour">
+                    <button class="btn btn-outline-danger behaviour-minus" data-delta="-1">–</button>
+                    <button class="btn btn-outline-success behaviour-plus" data-delta="+1">+</button>
+                </div>
+                <div class="small">
+                    <span class="text-muted">Pts</span>
+                    <span class="fw-bold behaviour-total" data-initial="{{ total }}">{{ total }}</span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<meta name="csrf-token" content="{{ csrf_token() if csrf_token else '' }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/seating.css') }}">
+<script>
+     window.SEATING_CONFIG = {
+    courseId: {{ course.id }},
+    // Exact base for behaviour adjust, ends with ".../api/behaviour/"
+    behaviourAdjustBase: "{{ url_for('seating.api_behaviour_adjust', course_id=course.id, user_id=0) | replace('0/adjust','') }}",
+    // Exact base for seating update, ends with ".../api/seating/"
+    seatingUpdateBase: "{{ url_for('seating.api_update_position', course_id=course.id, user_id=0) | replace('0','') }}"
+  };
+</script>
+<script src="{{ url_for('static', filename='js/seating.js') }}"></script>
+{% endblock %}

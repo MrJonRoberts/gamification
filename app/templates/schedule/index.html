@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Schedule · {{ course.name }}{% endblock %}
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h4 mb-0">
+      <i class="fa-solid fa-calendar-days me-2"></i>{{ course.name }} — Schedule
+      <span class="text-muted small">({{ course.semester }} {{ course.year }})</span>
+    </h1>
+    <div class="d-flex gap-2">
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('attendance.course_attendance', course_id=course.id) }}">
+        <i class="fa-solid fa-clipboard-check me-1"></i> Attendance
+      </a>
+      <a class="btn btn-sm btn-primary" href="{{ url_for('schedule.schedule_setup', course_id=course.id) }}">
+        <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Generate/Update
+      </a>
+    </div>
+  </div>
+
+  {% if lessons and lessons|length %}
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>#</th>
+            <th>Date</th>
+            <th>Time</th>
+            <th>Term · Week</th>
+            <th>Status</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in lessons %}
+            <tr>
+              <td class="text-muted">{{ loop.index }}</td>
+              <td>{{ l.date.strftime("%a %d %b %Y") }}</td>
+              <td>
+                {% if l.start_time %}{{ l.start_time.strftime("%H:%M") }}{% endif %}
+                {% if l.end_time %}– {{ l.end_time.strftime("%H:%M") }}{% endif %}
+              </td>
+              <td>
+                {% if l.term %}{{ l.term.name }}{% else %}—{% endif %}
+                · W{{ l.week_of_term }}
+              </td>
+              <td>
+                <span class="badge {{ 'bg-success-subtle text-success' if l.status=='SCHEDULED' else 'bg-secondary' }}">
+                  {{ l.status.replace('_',' ').title() }}
+                </span>
+              </td>
+              <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary"
+                   href="{{ url_for('attendance.mark_attendance', course_id=course.id, lesson_id=l.id) }}">
+                  Mark roll
+                </a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-info d-flex align-items-start">
+      <i class="fa-solid fa-circle-info me-2 mt-1"></i>
+      <div>
+        No lessons yet.
+        <div class="mt-2">
+          <a class="btn btn-primary btn-sm" href="{{ url_for('schedule.schedule_setup', course_id=course.id) }}">
+            <i class="fa-solid fa-wand-magic-sparkles me-1"></i> Set up schedule
+          </a>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if patterns and patterns|length %}
+    <div class="mt-4">
+      <div class="small text-muted mb-1">Weekly pattern:</div>
+      <div class="d-flex flex-wrap gap-2">
+        {% set D = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+        {% for p in patterns %}
+          <span class="badge bg-light text-body">
+            {{ D[p.day_of_week] }} {{ p.start_time.strftime("%H:%M") if p.start_time }}–{{ p.end_time.strftime("%H:%M") if p.end_time }}
+          </span>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

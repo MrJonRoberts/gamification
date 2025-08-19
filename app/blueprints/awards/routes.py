@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from wtforms import StringField, TextAreaField, IntegerField, SelectMultipleField, widgets, validators
 from flask_wtf import FlaskForm
 from ...extensions import db
-from ...models import Award, AwardBadge, Badge, User, award_progress, PointLedger
+from app.models import Award, AwardBadge, Badge, User, award_progress, PointLedger
 
 awards_bp = Blueprint("awards", __name__)
 

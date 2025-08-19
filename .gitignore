@@ -1,5 +1,7 @@
 # my ignores
 .env
+app/static/img/stds/*
+docs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

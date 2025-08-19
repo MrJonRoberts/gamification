@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h4 mb-0">Edit User — {{ u.first_name }} {{ u.last_name }}</h1>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.users_index') }}">Back</a>
+  </div>
+
+  <form method="post" novalidate>
+    {{ form.csrf_token }}
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">{{ form.first_name.label.text }}</label>
+        {{ form.first_name(class="form-control") }}
+        {% for e in form.first_name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">{{ form.last_name.label.text }}</label>
+        {{ form.last_name(class="form-control") }}
+        {% for e in form.last_name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">{{ form.email.label.text }}</label>
+        {{ form.email(class="form-control") }}
+        {% for e in form.email.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">{{ form.student_code.label.text }}</label>
+        {{ form.student_code(class="form-control") }}
+        {% for e in form.student_code.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">{{ form.registration_method.label.text }}</label>
+        {{ form.registration_method(class="form-select") }}
+      </div>
+
+      <div class="col-md-3 d-flex align-items-center">
+        <div class="form-check mt-4">
+          {{ form.is_active(class="form-check-input", id="is_active") }}
+          <label class="form-check-label" for="is_active">{{ form.is_active.label.text }}</label>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">{{ form.roles.label.text }}</label>
+        {{ form.roles(class="form-select", multiple=True, size=6) }}
+        <div class="form-text">Hold Ctrl/Cmd to toggle multiple roles.</div>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">{{ form.groups.label.text }}</label>
+        {{ form.groups(class="form-select", multiple=True, size=8) }}
+        <div class="form-text">Hold Ctrl/Cmd to toggle multiple groups.</div>
+      </div>
+
+      <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Save changes</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('admin.users_index') }}">Cancel</a>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+      <h1 class="h4 mb-1">{{ course.name or 'Course' }} — Schedule</h1>
+      <div class="text-muted small">
+        Year: {{ target_year }}
+        {% if course.semester %} · Semester: {{ course.semester }}{% endif %}
+        {% if course.code %} · Code: {{ course.code }}{% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-primary"
+         href="{{ url_for('schedule.schedule_setup', course_id=course.id) }}">
+        Manage schedule
+      </a>
+    </div>
+  </div>
+
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% if msgs %}
+      {% for cat, msg in msgs %}
+        <div class="alert alert-{{ 'warning' if cat == 'message' else cat }} alert-dismissible fade show" role="alert">
+          {{ msg }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% if not ay %}
+    <div class="alert alert-warning d-flex justify-content-between align-items-center">
+      <div>
+        Academic year <strong>{{ target_year }}</strong> isn’t configured yet.
+        Configure term dates before building the timetable.
+      </div>
+      <a class="btn btn-warning"
+         href="{{ url_for('schedule.year_setup') }}?year={{ target_year }}&next={{ url_for('schedule.course_schedule', course_id=course.id) }}">
+        Configure {{ target_year }}
+      </a>
+    </div>
+  {% endif %}
+
+  {% if ay and terms %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="fw-bold">Term dates for {{ target_year }}</div>
+          <a class="btn btn-sm btn-outline-secondary"
+             href="{{ url_for('schedule.year_setup') }}?year={{ target_year }}&next={{ url_for('schedule.course_schedule', course_id=course.id) }}">
+            Review / re-scrape year
+          </a>
+        </div>
+        <hr class="my-2">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Term</th><th>Start</th><th>End</th><th>Weeks</th></tr></thead>
+            <tbody>
+            {% for t in terms %}
+              <tr>
+                <td>{{ t.number }} ({{ t.name }})</td>
+                <td>{{ t.start_date or '—' }}</td>
+                <td>{{ t.end_date or '—' }}</td>
+                <td>{{ t.weeks or '—' }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-5">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center">
+            <h2 class="h6 mb-0">Upcoming lessons</h2>
+            <span class="badge bg-secondary">{{ upcoming|length }}</span>
+          </div>
+          <hr class="my-2">
+          {% if upcoming %}
+            <div class="list-group list-group-flush">
+              {% for l in upcoming %}
+                <div class="list-group-item">
+                  <div class="fw-semibold">
+                    {{ l.title or l.name or 'Lesson' }}
+                  </div>
+                  <div class="small text-muted">
+                    {% if l.date %}{{ l.date }}{% else %}—{% endif %}
+                    {% if l.start_time or l.end_time %}
+                      ·
+                      {{ l.start_time or '—' }}{% if l.end_time %}–{{ l.end_time }}{% endif %}
+                    {% endif %}
+                    {% if l.location %} · {{ l.location }}{% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-muted">No upcoming lessons found.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-7">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h6">All scheduled lessons</h2>
+          <hr class="my-2">
+          {% if lessons %}
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th style="width: 110px;">Date</th>
+                    <th style="width: 120px;">Time</th>
+                    <th>Title</th>
+                    <th style="width: 160px;">Location</th>
+                  </tr>
+                </thead>
+                <tbody>
+                {% for l in lessons %}
+                  <tr>
+                    <td>{{ l.date or '—' }}</td>
+                    <td>
+                      {% if l.start_time or l.end_time %}
+                        {{ l.start_time or '—' }}{% if l.end_time %}–{{ l.end_time }}{% endif %}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>{{ l.title or l.name or 'Lesson' }}</td>
+                    <td>{{ l.location or '—' }}</td>
+                  </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="text-muted">No lessons scheduled yet. Use “Manage schedule” to add sessions.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

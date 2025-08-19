@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h5>{{ course.name }} — {{ lesson.date.strftime('%a %d %b %Y') }} (Wk {{ lesson.week_of_term }})</h5>
+    <button name="toggle_cancel" value="{{ 'off' if lesson.status=='NO_CLASS_TODAY' else 'on' }}"
+            class="btn btn-outline-warning">
+      {{ 'Reopen Lesson' if lesson.status=='NO_CLASS_TODAY' else 'NO CLASS TODAY' }}
+    </button>
+  </div>
+
+  <table class="table table-sm align-middle">
+    <thead><tr><th>Student</th><th>Status</th><th>Comment</th></tr></thead>
+    <tbody>
+      {% for enr in enrollments %}
+      <tr>
+        <td>{{ enr.student.last_name }}, {{ enr.student.first_name }}</td>
+        <td>
+          <select name="status_{{ enr.student.id }}" class="form-select form-select-sm"
+                  {% if lesson.status=='NO_CLASS_TODAY' %}disabled{% endif %}>
+            {% for s in ['PRESENT','ABSENT','LATE','SCHOOL_APPROVED_ABSENT'] %}
+              <option value="{{ s }}" {{ 'selected' if attendance[enr.student.id].status==s else '' }}>{{ s.replace('_',' ') }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td><input class="form-control form-control-sm" name="comment_{{ enr.student.id }}"
+                   value="{{ attendance[enr.student.id].comment or '' }}"
+                   {% if lesson.status=='NO_CLASS_TODAY' %}disabled{% endif %}></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="mt-3">
+    <button class="btn btn-primary" type="submit">Save Roll</button>
+  </div>
+</form>
+{% endblock %}

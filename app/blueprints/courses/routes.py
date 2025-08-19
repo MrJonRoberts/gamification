@@ -3,7 +3,7 @@ from flask_login import login_required
 from wtforms import StringField, IntegerField, SelectField, validators
 from flask_wtf import FlaskForm
 from ...extensions import db
-from ...models import Course, User
+from app.models import Course, User
 import io
 import pandas as pd
 
