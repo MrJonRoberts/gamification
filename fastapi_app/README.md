@@ -1,6 +1,6 @@
 # Gamification App (FastAPI Version)
 
-This is a port of the original Flask-based gamification application to a modern stack using FastAPI, SQLModel, HTMX, and Tailwind CSS.
+This is a port of the original Flask-based gamification application to a modern stack using FastAPI, SQLModel, HTMX, and Bootstrap 5.
 
 ## Project Setup
 
@@ -22,16 +22,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Node.js Environment
-
-This project uses Tailwind CSS for styling. You will need Node.js and npm installed.
-
-```bash
-# Install the Node.js dependencies
-npm install
-```
-
-### 3. Application Configuration
+### 2. Application Configuration
 
 The application is configured using environment variables. Create a `.env` file in the `fastapi_app` directory by copying the `.env.example` file (if one exists) or by creating a new one.
 
@@ -64,14 +55,6 @@ alembic upgrade head
 ```
 
 ## Running the Application
-
-### Building the CSS
-
-Before running the application, you need to build the Tailwind CSS file.
-```bash
-npm run build:css
-```
-I have not yet added the `build:css` script to `package.json`. I will do that now.
 
 ### Running the Development Server
 

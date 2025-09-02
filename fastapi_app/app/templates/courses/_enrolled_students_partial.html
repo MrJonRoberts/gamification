@@ -1,7 +1,7 @@
 {% if course.students %}
-    <ul class="list-disc pl-5">
+    <ul class="list-group">
         {% for student in course.students %}
-            <li>{{ student.full_name }} ({{ student.email }})</li>
+            <li class="list-group-item">{{ student.full_name }} ({{ student.email }})</li>
         {% endfor %}
     </ul>
 {% else %}

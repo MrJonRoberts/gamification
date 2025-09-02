@@ -3,31 +3,31 @@
 {% block title %}Badges{% endblock %}
 
 {% block content %}
-<div class="flex justify-between items-center mb-4">
-    <h1 class="text-2xl font-bold">Badges</h1>
-    <a href="/badges/new" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h2">Badges</h1>
+    <a href="/badges/new" class="btn btn-primary">
         Add Badge
     </a>
 </div>
 
 <div id="badge-list">
-    <table class="min-w-full bg-white">
+    <table class="table table-striped">
         <thead>
             <tr>
-                <th class="py-2 px-4 border-b">Name</th>
-                <th class="py-2 px-4 border-b">Description</th>
-                <th class="py-2 px-4 border-b">Points</th>
-                <th class="py-2 px-4 border-b">Actions</th>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Points</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for badge in badges %}
             <tr>
-                <td class="py-2 px-4 border-b">{{ badge.name }}</td>
-                <td class="py-2 px-4 border-b">{{ badge.description }}</td>
-                <td class="py-2 px-4 border-b">{{ badge.points }}</td>
-                <td class="py-2 px-4 border-b">
-                    <a href="/badges/{{ badge.id }}/grant" class="text-blue-500 hover:underline">Grant</a>
+                <td>{{ badge.name }}</td>
+                <td>{{ badge.description }}</td>
+                <td>{{ badge.points }}</td>
+                <td>
+                    <a href="/badges/{{ badge.id }}/grant" class="btn btn-sm btn-outline-success">Grant</a>
                 </td>
             </tr>
             {% endfor %}

@@ -1,15 +1,14 @@
 <tr id="student-row-{{ record.student.id }}">
-    <td class="py-2 px-4 border-b">{{ record.student.full_name }}</td>
-    <td class="py-2 px-4 border-b">
+    <td>{{ record.student.full_name }}</td>
+    <td>
         <button hx-post="/attendance/record/{{ record.id }}/next-status"
                 hx-target="#student-row-{{ record.student.id }}"
                 hx-swap="outerHTML"
-                class="
-                    font-bold py-1 px-3 rounded
-                    {% if record.status == 'PRESENT' %} bg-green-200 text-green-800
-                    {% elif record.status == 'ABSENT' %} bg-red-200 text-red-800
-                    {% elif record.status == 'LATE' %} bg-yellow-200 text-yellow-800
-                    {% else %} bg-gray-200 text-gray-800
+                class="btn btn-sm
+                    {% if record.status == 'PRESENT' %} btn-success
+                    {% elif record.status == 'ABSENT' %} btn-danger
+                    {% elif record.status == 'LATE' %} btn-warning
+                    {% else %} btn-secondary
                     {% endif %}
                 ">
             {{ record.status }}

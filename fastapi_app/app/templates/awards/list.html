@@ -3,28 +3,28 @@
 {% block title %}Awards{% endblock %}
 
 {% block content %}
-<div class="flex justify-between items-center mb-4">
-    <h1 class="text-2xl font-bold">Awards</h1>
-    <a href="/awards/new" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h2">Awards</h1>
+    <a href="/awards/new" class="btn btn-primary">
         Add Award
     </a>
 </div>
 
 <div id="award-list">
-    <table class="min-w-full bg-white">
+    <table class="table table-striped">
         <thead>
             <tr>
-                <th class="py-2 px-4 border-b">Name</th>
-                <th class="py-2 px-4 border-b">Description</th>
-                <th class="py-2 px-4 border-b">Points</th>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Points</th>
             </tr>
         </thead>
         <tbody>
             {% for award in awards %}
             <tr>
-                <td class="py-2 px-4 border-b">{{ award.name }}</td>
-                <td class="py-2 px-4 border-b">{{ award.description }}</td>
-                <td class="py-2 px-4 border-b">{{ award.points }}</td>
+                <td>{{ award.name }}</td>
+                <td>{{ award.description }}</td>
+                <td>{{ award.points }}</td>
             </tr>
             {% endfor %}
         </tbody>

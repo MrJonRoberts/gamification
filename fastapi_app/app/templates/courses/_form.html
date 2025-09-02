@@ -1,25 +1,28 @@
-<div id="modal-content" class="bg-white rounded-lg shadow-lg p-6">
-    <form hx-post="/courses" hx-target="#course-list" hx-swap="innerHTML" hx-on::after-request="this.closest('#modal-content').remove()">
-        <h2 class="text-2xl font-bold mb-4">Add Course</h2>
-        <div class="mb-4">
-            <label for="name" class="block text-gray-700 text-sm font-bold mb-2">Name</label>
-            <input type="text" id="name" name="name" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
-        </div>
-        <div class="mb-4">
-            <label for="semester" class="block text-gray-700 text-sm font-bold mb-2">Semester</label>
-            <input type="text" id="semester" name="semester" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
-        </div>
-        <div class="mb-4">
-            <label for="year" class="block text-gray-700 text-sm font-bold mb-2">Year</label>
-            <input type="number" id="year" name="year" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" required>
-        </div>
-        <div class="flex justify-end">
-            <button type="button" onclick="document.getElementById('modal-content').remove()" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded mr-2">
-                Cancel
-            </button>
-            <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-                Save
-            </button>
-        </div>
-    </form>
+<div class="modal-dialog">
+    <div class="modal-content">
+        <form hx-post="/courses" hx-target="#course-list" hx-swap="innerHTML" hx-on::after-request="this.closest('.modal').remove()">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Course</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="this.closest('.modal').remove()"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="name" class="form-label">Name</label>
+                    <input type="text" id="name" name="name" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label for="semester" class="form-label">Semester</label>
+                    <input type="text" id="semester" name="semester" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label for="year" class="form-label">Year</label>
+                    <input type="number" id="year" name="year" class="form-control" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="this.closest('.modal').remove()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
 </div>

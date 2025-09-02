@@ -3,23 +3,25 @@
 {% block title %}Seating Plan for {{ course.name }}{% endblock %}
 
 {% block content %}
-<h1 class="text-2xl font-bold mb-4">Seating Plan for {{ course.name }}</h1>
+<h1 class="h2 mb-4">Seating Plan for {{ course.name }}</h1>
 
-<div class="bg-white shadow-md rounded p-4">
-    <div id="seating-plan-canvas" class="relative w-full h-[600px] border">
-        <!-- Students will be rendered here as draggable elements -->
-        {% for position in seating_plan %}
-            <div class="absolute cursor-move p-2 rounded-full bg-blue-200"
-                 style="left: {{ position.x }}px; top: {{ position.y }}px;"
-                 data-student-id="{{ position.user.id }}">
-                {{ position.user.first_name[0] }}{{ position.user.last_name[0] }}
-            </div>
-        {% endfor %}
+<div class="card">
+    <div class="card-body">
+        <div id="seating-plan-canvas" class="position-relative border" style="height: 600px;">
+            <!-- Students will be rendered here as draggable elements -->
+            {% for position in seating_plan %}
+                <div class="position-absolute p-2 rounded-circle bg-primary text-white"
+                     style="left: {{ position.x }}px; top: {{ position.y }}px; cursor: move;"
+                     data-student-id="{{ position.user.id }}">
+                    {{ position.user.first_name[0] }}{{ position.user.last_name[0] }}
+                </div>
+            {% endfor %}
+        </div>
     </div>
 </div>
 
 <div class="mt-4">
-    <button id="save-seating-plan" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+    <button id="save-seating-plan" class="btn btn-primary">
         Save Plan
     </button>
 </div>

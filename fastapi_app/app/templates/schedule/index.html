@@ -3,24 +3,31 @@
 {% block title %}Schedule Setup{% endblock %}
 
 {% block content %}
-<h1 class="text-2xl font-bold mb-4">Schedule Setup</h1>
+<h1 class="h2 mb-4">Schedule Setup</h1>
 
-<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+<div class="row g-4">
     <!-- Academic Year Setup -->
-    <div class="bg-white shadow-md rounded p-6">
-        <h2 class="text-xl font-bold mb-4">Academic Years</h2>
-        <!-- List of years will go here -->
-        <a href="/schedule/year/new" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-            Set Up New Year
-        </a>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title h4">Academic Years</h2>
+                <!-- List of years will go here -->
+                <a href="/schedule/year/new" class="btn btn-primary">
+                    Set Up New Year
+                </a>
+            </div>
+        </div>
     </div>
 
     <!-- Course Schedule Setup -->
-    <div class="bg-white shadow-md rounded p-6">
-        <h2 class="text-xl font-bold mb-4">Course Schedules</h2>
-        <p class="text-gray-600 mb-4">Define the weekly repeating schedule for each course.</p>
-        <!-- Link to course schedule setup will go here -->
-        <a href="/courses" class="text-blue-500 hover:underline">Go to Courses to set up schedules</a>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title h4">Course Schedules</h2>
+                <p class="card-text">Define the weekly repeating schedule for each course.</p>
+                <a href="/courses">Go to Courses to set up schedules</a>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
