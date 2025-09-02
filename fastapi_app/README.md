@@ -54,6 +54,16 @@ Then, apply the new migration:
 alembic upgrade head
 ```
 
+### 5. Seeding the Database
+
+To create a default admin user, you can run the admin seed script:
+```bash
+python seed_admin.py
+```
+This will create a user with the following credentials:
+- **Email:** `admin@example.com`
+- **Password:** `admin`
+
 ## Running the Application
 
 ### Running the Development Server
