@@ -1,0 +1,22 @@
+<table class="min-w-full bg-white">
+    <thead>
+        <tr>
+            <th class="py-2 px-4 border-b">Name</th>
+            <th class="py-2 px-4 border-b">Semester</th>
+            <th class="py-2 px-4 border-b">Year</th>
+            <th class="py-2 px-4 border-b">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for course in courses %}
+        <tr>
+            <td class="py-2 px-4 border-b">{{ course.name }}</td>
+            <td class="py-2 px-4 border-b">{{ course.semester }}</td>
+            <td class="py-2 px-4 border-b">{{ course.year }}</td>
+            <td class="py-2 px-4 border-b">
+                <a href="/courses/{{ course.id }}" class="text-blue-500 hover:underline">View</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

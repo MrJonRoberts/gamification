@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Calendar{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold">Attendance</h1>
+    <!-- Month navigation will go here -->
+</div>
+
+<div class="bg-white shadow-md rounded p-4">
+    <div class="grid grid-cols-7 gap-4 text-center">
+        <!-- Calendar header -->
+        <div class="font-bold">Sun</div>
+        <div class="font-bold">Mon</div>
+        <div class="font-bold">Tue</div>
+        <div class="font-bold">Wed</div>
+        <div class="font-bold">Thu</div>
+        <div class="font-bold">Fri</div>
+        <div class="font-bold">Sat</div>
+
+        <!-- Calendar days will be rendered here by the backend -->
+        {% for day in calendar_data %}
+            <div class="border rounded p-2 h-24
+                {% if day.is_today %} bg-blue-100 {% endif %}
+                {% if not day.in_month %} bg-gray-50 text-gray-400 {% endif %}
+            ">
+                <div class="font-bold">{{ day.date.day }}</div>
+                {% if day.lesson %}
+                    <a href="#"
+                       hx-get="/attendance/lesson/{{ day.lesson.id }}"
+                       hx-target="#attendance-sheet"
+                       hx-swap="innerHTML"
+                       class="block bg-blue-500 text-white rounded mt-1 p-1 text-sm truncate"
+                    >
+                        {{ day.lesson.course.name }}
+                    </a>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div id="attendance-sheet" class="mt-8">
+    <!-- The attendance sheet for the selected lesson will be loaded here -->
+</div>
+{% endblock %}

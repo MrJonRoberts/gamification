@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Courses{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold">Courses</h1>
+    <button hx-get="/courses/new" hx-target="#modal-container" hx-swap="innerHTML"
+            class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+        Add Course
+    </button>
+</div>
+
+<div id="course-list">
+    <!-- The list of courses will be rendered here -->
+    {% include "courses/_list_partial.html" %}
+</div>
+
+<div class="mt-8">
+    <h2 class="text-xl font-bold mb-2">Upload Courses from CSV</h2>
+    <form hx-encoding="multipart/form-data" hx-post="/courses/upload-csv" hx-target="#course-list" hx-swap="innerHTML">
+        <input type="file" name="file" class="mb-2">
+        <button type="submit" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+            Upload
+        </button>
+    </form>
+</div>
+{% endblock %}

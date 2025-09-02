@@ -1,0 +1,28 @@
+<div class="bg-white shadow-md rounded p-4">
+    <h2 class="text-xl font-bold mb-4">Attendance for {{ lesson.course.name }} on {{ lesson.date }}</h2>
+
+    <div class="mb-4">
+        <button hx-post="/attendance/lesson/{{ lesson.id }}/mark-all/PRESENT" hx-target="#attendance-sheet" hx-swap="innerHTML"
+                class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+            Mark All Present
+        </button>
+        <button hx-post="/attendance/lesson/{{ lesson.id }}/mark-all/ABSENT" hx-target="#attendance-sheet" hx-swap="innerHTML"
+                class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+            Mark All Absent
+        </button>
+    </div>
+
+    <table class="min-w-full">
+        <thead>
+            <tr>
+                <th class="py-2 px-4 border-b">Student</th>
+                <th class="py-2 px-4 border-b">Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in attendance_records %}
+                {% include "attendance/_student_row.html" %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

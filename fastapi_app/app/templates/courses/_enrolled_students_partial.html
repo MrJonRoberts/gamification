@@ -1,0 +1,9 @@
+{% if course.students %}
+    <ul class="list-disc pl-5">
+        {% for student in course.students %}
+            <li>{{ student.full_name }} ({{ student.email }})</li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p>No students are enrolled in this course yet.</p>
+{% endif %}
