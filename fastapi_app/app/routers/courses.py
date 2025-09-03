@@ -9,6 +9,7 @@ from app.models.course import Course
 from app.models.user import User
 from app.schemas.course import CourseForm
 from app.routers.auth import get_template_context
+from fastapi.responses import RedirectResponse
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -101,3 +102,43 @@ async def enroll_students(request: Request, course_id: int, student_ids: List[in
         "courses/_enrolled_students_partial.html",
         {"request": request, "course": course},
     )
+
+@router.get("/{course_id}/students/upload")
+async def upload_students_form(course_id: int, context: dict = Depends(get_template_context), session: Session = Depends(get_session)):
+    course = session.get(Course, course_id)
+    if not course:
+        return {"error": "Course not found"}
+    context["course"] = course
+    return templates.TemplateResponse("students/upload.html", context)
+
+@router.post("/{course_id}/students/upload-csv")
+async def upload_students_csv(
+    course_id: int,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session)
+):
+    course = session.get(Course, course_id)
+    if not course:
+        return {"error": "Course not found"}
+
+    try:
+        contents = await file.read()
+        buffer = io.StringIO(contents.decode("utf-8"))
+        reader = csv.DictReader(buffer)
+        for row in reader:
+            student = User(
+                first_name=row["first_name"],
+                last_name=row["last_name"],
+                email=row["email"],
+                role="student",
+            )
+            student.set_password(row["password"])
+            session.add(student)
+            course.students.append(student)
+
+        session.commit()
+    except Exception as e:
+        # In a real app, you'd handle errors more gracefully
+        print(f"Error processing student CSV: {e}")
+
+    return RedirectResponse(url=f"/courses/{course_id}/enroll", status_code=303)

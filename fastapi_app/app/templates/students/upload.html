@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Students for {{ course.name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <h1 class="card-title h2 mb-4">Upload Students for {{ course.name }}</h1>
+        <p class="card-text">Upload a CSV file with student information. The required columns are: `first_name`, `last_name`, `email`, and `password`.</p>
+
+        <form action="/courses/{{ course.id }}/students/upload-csv" method="post" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label for="file" class="form-label">CSV File</label>
+                <input type="file" name="file" id="file" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Upload and Enroll</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

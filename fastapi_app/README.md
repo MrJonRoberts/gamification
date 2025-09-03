@@ -72,6 +72,12 @@ You can bulk-upload courses using a CSV file on the "Courses" page. The CSV file
 
 A `sample_courses.csv` file is included in this directory to serve as an example.
 
+### CSV Upload for Students
+
+From a course's "Enroll Students" page, you can bulk-upload students using a CSV file. The CSV file must have the following columns: `first_name`, `last_name`, `email`, and `password`.
+
+A `sample_students.csv` file is included in this directory to serve as an example.
+
 ### Running the Development Server
 
 To run the application, use Uvicorn:

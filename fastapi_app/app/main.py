@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from .config import settings
-from .routers import auth, courses, badges, awards, points, attendance, schedule, seating, admin
+from .routers import auth, courses, badges, awards, points, attendance, schedule, seating, admin, students
 from .models.user import User
 
 app = FastAPI()
@@ -23,6 +23,7 @@ app.include_router(attendance.router, prefix="/attendance", tags=["attendance"])
 app.include_router(schedule.router, prefix="/schedule", tags=["schedule"])
 app.include_router(seating.router, prefix="/seating", tags=["seating"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
+app.include_router(students.router, prefix="/students", tags=["students"])
 
 @app.get("/")
 async def root(request: Request, current_user: User = Depends(auth.get_current_user)):
