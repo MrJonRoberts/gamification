@@ -7,13 +7,13 @@ from app.models.attendance import Attendance, AttendanceStatus
 from app.models.schedule import Lesson
 from app.models.user import User
 from app.utils.calendar import generate_calendar_data
-from app.routers.auth import require_login
+from app.routers.auth import require_login, get_template_context
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 @router.get("/")
-async def get_calendar(request: Request, current_user: User = Depends(require_login), session: Session = Depends(get_session)):
+async def get_calendar(context: dict = Depends(get_template_context), current_user: User = Depends(require_login), session: Session = Depends(get_session)):
     # For now, just show the current month. A real app would have month navigation.
     today = date.today()
     calendar_data = generate_calendar_data(today.year, today.month)
@@ -28,13 +28,11 @@ async def get_calendar(request: Request, current_user: User = Depends(require_lo
             if day["date"] in lessons_by_date:
                 day["lesson"] = lessons_by_date[day["date"]]
 
-    return templates.TemplateResponse(
-        "attendance/calendar.html",
-        {"request": request, "calendar_data": calendar_data},
-    )
+    context["calendar_data"] = calendar_data
+    return templates.TemplateResponse("attendance/calendar.html", context)
 
 @router.get("/lesson/{lesson_id}")
-async def get_attendance_sheet(request: Request, lesson_id: int, session: Session = Depends(get_session)):
+async def get_attendance_sheet(lesson_id: int, context: dict = Depends(get_template_context), session: Session = Depends(get_session)):
     lesson = session.get(Lesson, lesson_id)
     if not lesson:
         return {"error": "Lesson not found"}
@@ -52,10 +50,9 @@ async def get_attendance_sheet(request: Request, lesson_id: int, session: Sessio
 
     attendance_records = session.exec(select(Attendance).where(Attendance.lesson_id == lesson_id)).all()
 
-    return templates.TemplateResponse(
-        "attendance/_sheet.html",
-        {"request": request, "lesson": lesson, "attendance_records": attendance_records},
-    )
+    context["lesson"] = lesson
+    context["attendance_records"] = attendance_records
+    return templates.TemplateResponse("attendance/_sheet.html", context)
 
 @router.post("/lesson/{lesson_id}/mark-all/{status}")
 async def mark_all(request: Request, lesson_id: int, status: AttendanceStatus, session: Session = Depends(get_session)):

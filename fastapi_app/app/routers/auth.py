@@ -10,8 +10,8 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 @router.get("/login")
-async def login_form(request: Request):
-    return templates.TemplateResponse("auth/login.html", {"request": request})
+async def login_form(context: dict = Depends(get_template_context)):
+    return templates.TemplateResponse("auth/login.html", context)
 
 @router.post("/login")
 async def login(request: Request, email: str = Form(...), password: str = Form(...), session: Session = Depends(get_session)):
@@ -29,8 +29,8 @@ async def login(request: Request, email: str = Form(...), password: str = Form(.
     return response
 
 @router.get("/register")
-async def register_form(request: Request):
-    return templates.TemplateResponse("auth/register.html", {"request": request})
+async def register_form(context: dict = Depends(get_template_context)):
+    return templates.TemplateResponse("auth/register.html", context)
 
 @router.post("/register")
 async def register(request: Request, form_data: RegisterForm = Depends(RegisterForm.as_form), session: Session = Depends(get_session)):
@@ -70,3 +70,6 @@ def require_login(current_user: Optional[User] = Depends(get_current_user)):
     if not current_user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return current_user
+
+async def get_template_context(request: Request, current_user: Optional[User] = Depends(get_current_user)):
+    return {"request": request, "current_user": current_user}

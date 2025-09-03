@@ -5,12 +5,13 @@ from app.db import get_session
 from app.models.course import Course
 from app.models.seating import SeatingPosition
 from app.schemas.seating import SeatingPlanForm
+from app.routers.auth import get_template_context
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 @router.get("/course/{course_id}")
-async def get_seating_plan(request: Request, course_id: int, session: Session = Depends(get_session)):
+async def get_seating_plan(course_id: int, context: dict = Depends(get_template_context), session: Session = Depends(get_session)):
     course = session.get(Course, course_id)
     if not course:
         return {"error": "Course not found"}
@@ -27,10 +28,9 @@ async def get_seating_plan(request: Request, course_id: int, session: Session = 
 
     seating_plan = session.exec(select(SeatingPosition).where(SeatingPosition.course_id == course_id)).all()
 
-    return templates.TemplateResponse(
-        "seating/plan.html",
-        {"request": request, "course": course, "seating_plan": seating_plan},
-    )
+    context["course"] = course
+    context["seating_plan"] = seating_plan
+    return templates.TemplateResponse("seating/plan.html", context)
 
 @router.post("/course/{course_id}")
 async def save_seating_plan(

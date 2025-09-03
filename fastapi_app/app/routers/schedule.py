@@ -5,18 +5,19 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 from app.db import get_session
 from app.models.schedule import AcademicYear, Term
+from app.routers.auth import get_template_context
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 @router.get("/")
-async def schedule_index(request: Request, session: Session = Depends(get_session)):
+async def schedule_index(context: dict = Depends(get_template_context), session: Session = Depends(get_session)):
     # In a real app, you'd list the existing academic years
-    return templates.TemplateResponse("schedule/index.html", {"request": request})
+    return templates.TemplateResponse("schedule/index.html", context)
 
 @router.get("/year/new")
-async def new_year_form(request: Request):
-    return templates.TemplateResponse("schedule/year_setup.html", {"request": request})
+async def new_year_form(context: dict = Depends(get_template_context)):
+    return templates.TemplateResponse("schedule/year_setup.html", context)
 
 @router.post("/year/new")
 async def create_academic_year(

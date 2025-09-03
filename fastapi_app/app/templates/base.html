@@ -12,8 +12,35 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container-fluid">
             <a class="navbar-brand" href="/">Gamification App</a>
-            <div class="collapse navbar-collapse">
-                <!-- Navigation links will go here -->
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    {% if current_user %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="/courses">Courses</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/badges">Badges</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/awards">Awards</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/profile">Profile</a>
+                        </li>
+                        <li class="nav-item">
+                            <form hx-post="/auth/logout" hx-target="body">
+                                <button type="submit" class="nav-link btn btn-link">Logout</button>
+                            </form>
+                        </li>
+                    {% else %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="/auth/login">Login</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/auth/register">Register</a>
+                        </li>
+                    {% endif %}
+                </ul>
             </div>
         </div>
     </nav>

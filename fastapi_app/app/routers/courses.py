@@ -8,18 +8,20 @@ from app.db import get_session
 from app.models.course import Course
 from app.models.user import User
 from app.schemas.course import CourseForm
+from app.routers.auth import get_template_context
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 @router.get("/")
-async def get_courses(request: Request, session: Session = Depends(get_session)):
+async def get_courses(context: dict = Depends(get_template_context), session: Session = Depends(get_session)):
     courses = session.exec(select(Course)).all()
-    return templates.TemplateResponse("courses/list.html", {"request": request, "courses": courses})
+    context["courses"] = courses
+    return templates.TemplateResponse("courses/list.html", context)
 
 @router.get("/new")
-async def new_course_form(request: Request):
-    return templates.TemplateResponse("courses/_form.html", {"request": request})
+async def new_course_form(context: dict = Depends(get_template_context)):
+    return templates.TemplateResponse("courses/_form.html", context)
 
 @router.post("/")
 async def create_course(
@@ -58,15 +60,16 @@ async def upload_courses_csv(request: Request, file: UploadFile = File(...), ses
     return templates.TemplateResponse("courses/_list_partial.html", {"request": request, "courses": courses})
 
 @router.get("/{course_id}")
-async def get_course_details(request: Request, course_id: int, session: Session = Depends(get_session)):
+async def get_course_details(course_id: int, context: dict = Depends(get_template_context), session: Session = Depends(get_session)):
     course = session.get(Course, course_id)
     if not course:
         # In a real app, you'd have a proper 404 page
         return {"error": "Course not found"}
-    return templates.TemplateResponse("courses/detail.html", {"request": request, "course": course})
+    context["course"] = course
+    return templates.TemplateResponse("courses/detail.html", context)
 
 @router.get("/{course_id}/enroll")
-async def enroll_form(request: Request, course_id: int, session: Session = Depends(get_session)):
+async def enroll_form(course_id: int, context: dict = Depends(get_template_context), session: Session = Depends(get_session)):
     course = session.get(Course, course_id)
     if not course:
         return {"error": "Course not found"}
@@ -75,10 +78,9 @@ async def enroll_form(request: Request, course_id: int, session: Session = Depen
     all_students = session.exec(select(User).where(User.role == "student")).all()
     available_students = [student for student in all_students if student.id not in enrolled_student_ids]
 
-    return templates.TemplateResponse(
-        "courses/enroll.html",
-        {"request": request, "course": course, "all_students": available_students},
-    )
+    context["course"] = course
+    context["all_students"] = available_students
+    return templates.TemplateResponse("courses/enroll.html", context)
 
 @router.post("/{course_id}/enroll")
 async def enroll_students(request: Request, course_id: int, student_ids: List[int] = Form(...), session: Session = Depends(get_session)):

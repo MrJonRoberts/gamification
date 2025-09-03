@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -24,9 +25,13 @@ app.include_router(seating.router, prefix="/seating", tags=["seating"])
 app.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 @app.get("/")
-async def root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def root(request: Request, current_user: User = Depends(auth.get_current_user)):
+    if not current_user:
+        return RedirectResponse(url="/auth/login")
+    return RedirectResponse(url="/courses")
 
 @app.get("/profile")
-async def profile(request: Request, current_user: User = Depends(auth.require_login)):
-    return templates.TemplateResponse("profile.html", {"request": request, "current_user": current_user})
+async def profile(context: dict = Depends(auth.get_template_context)):
+    # The user is already required by the dependency, but we can assert it for type checkers
+    assert "current_user" in context
+    return templates.TemplateResponse("profile.html", context)

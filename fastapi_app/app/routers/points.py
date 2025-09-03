@@ -5,14 +5,16 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.models.point_ledger import PointLedger
 from app.models.user import User
+from app.routers.auth import get_template_context
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 @router.get("/adjust")
-async def adjust_points_form(request: Request, session: Session = Depends(get_session)):
+async def adjust_points_form(context: dict = Depends(get_template_context), session: Session = Depends(get_session)):
     users = session.exec(select(User)).all()
-    return templates.TemplateResponse("points/adjust.html", {"request": request, "users": users})
+    context["users"] = users
+    return templates.TemplateResponse("points/adjust.html", context)
 
 @router.post("/adjust")
 async def adjust_points(
