@@ -66,6 +66,12 @@ This will create a user with the following credentials:
 
 ## Running the Application
 
+### CSV Upload for Courses
+
+You can bulk-upload courses using a CSV file on the "Courses" page. The CSV file must have the following columns: `name`, `semester`, and `year`.
+
+A `sample_courses.csv` file is included in this directory to serve as an example.
+
 ### Running the Development Server
 
 To run the application, use Uvicorn:

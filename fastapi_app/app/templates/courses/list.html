@@ -5,8 +5,9 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1 class="h2">Courses</h1>
-    <button hx-get="/courses/new" hx-target="#modal-container" hx-swap="innerHTML"
-            class="btn btn-primary">
+    <button type="button" class="btn btn-primary"
+            data-bs-toggle="modal" data-bs-target="#modal"
+            hx-get="/courses/new" hx-target="#modal-content" hx-swap="innerHTML">
         Add Course
     </button>
 </div>
