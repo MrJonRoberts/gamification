@@ -9,6 +9,25 @@ from app.db import get_session
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
+# --- Dependencies ---
+
+def get_current_user(request: Request, session: Session = Depends(get_session)) -> Optional[User]:
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    user = session.get(User, user_id)
+    return user
+
+def require_login(current_user: Optional[User] = Depends(get_current_user)):
+    if not current_user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    return current_user
+
+async def get_template_context(request: Request, current_user: Optional[User] = Depends(get_current_user)):
+    return {"request": request, "current_user": current_user}
+
+# --- Routes ---
+
 @router.get("/login")
 async def login_form(context: dict = Depends(get_template_context)):
     return templates.TemplateResponse("auth/login.html", context)
@@ -58,18 +77,3 @@ async def logout(request: Request):
     response = Response(status_code=status.HTTP_303_SEE_OTHER)
     response.headers["Location"] = "/"
     return response
-
-def get_current_user(request: Request, session: Session = Depends(get_session)) -> Optional[User]:
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return None
-    user = session.get(User, user_id)
-    return user
-
-def require_login(current_user: Optional[User] = Depends(get_current_user)):
-    if not current_user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    return current_user
-
-async def get_template_context(request: Request, current_user: Optional[User] = Depends(get_current_user)):
-    return {"request": request, "current_user": current_user}
