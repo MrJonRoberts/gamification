@@ -1,11 +1,12 @@
-Flask
+fastapi
+uvicorn[standard]
 python-dotenv
-Flask-SQLAlchemy
-Flask-Migrate
-Flask-Login
-Flask-WTF
+sqlalchemy
+jinja2
+python-multipart
+passlib[bcrypt]
+itsdangerous
 email-validator
-WTForms
 pandas
 openpyxl
 

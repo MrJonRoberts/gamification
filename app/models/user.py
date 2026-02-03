@@ -1,9 +1,9 @@
 from datetime import datetime
-from werkzeug.security import generate_password_hash, check_password_hash
-from flask_login import UserMixin
 from app.extensions import db
+from app.security import hash_password, verify_password
 
-class User(db.Model, UserMixin):
+
+class User(db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -42,14 +42,18 @@ class User(db.Model, UserMixin):
     )
 
     def set_password(self, password: str):
-        self.password_hash = generate_password_hash(password)
+        self.password_hash = hash_password(password)
 
     def check_password(self, password: str) -> bool:
-        return check_password_hash(self.password_hash, password)
+        return verify_password(password, self.password_hash)
 
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
+
+    @property
+    def is_authenticated(self) -> bool:
+        return True
 
     def __repr__(self):
         return f"<User id={self.id} {self.full_name} role={self.role}>"
@@ -76,4 +80,3 @@ class Group(db.Model):
     __tablename__ = "groups"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(128), unique=True, nullable=False)
-
