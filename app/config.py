@@ -1,23 +1,27 @@
+from __future__ import annotations
+
 import os
-from dotenv import load_dotenv
+from dataclasses import dataclass
 from datetime import timedelta
+
+from dotenv import load_dotenv
+
 load_dotenv()
 
-class Config:
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///app.db")
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    REMEMBER_COOKIE_DURATION = timedelta(days=14)
-    WTF_CSRF_TIME_LIMIT = None
-    APP_NAME = os.getenv("APP_NAME", "app")
-    APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
-    ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
-    MAX_CONTENT_LENGTH = 4 * 1024 * 1024  # 4 MB
-    AUTHOR = "JRO"
 
-    # Centralize allowed image types for uploads (reuse everywhere)
-    ALLOWED_IMAGE_EXTS = {"png", "jpg", "jpeg", "webp"}
+@dataclass(frozen=True)
+class Settings:
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
+    SQLALCHEMY_DATABASE_URI: str = os.getenv("DATABASE_URL", "sqlite:///app.db")
+    REMEMBER_COOKIE_DURATION: timedelta = timedelta(days=14)
+    APP_NAME: str = os.getenv("APP_NAME", "app")
+    APP_VERSION: str = os.getenv("APP_VERSION", "1.0.0")
+    ALLOWED_EXTENSIONS: set[str] = ("png", "jpg", "jpeg", "webp")
+    MAX_CONTENT_LENGTH: int = 4 * 1024 * 1024
+    AUTHOR: str = "JRO"
+    ALLOWED_IMAGE_EXTS: set[str] = ("png", "jpg", "jpeg", "webp")
+    SESSION_COOKIE_SAMESITE: str = "Lax"
+    SESSION_COOKIE_SECURE: bool = False
 
-    # Safer cookies by default; set SECURE=True when you deploy behind HTTPS
-    SESSION_COOKIE_SAMESITE = "Lax"
-    SESSION_COOKIE_SECURE = False  # change to True in production (HTTPS)
+
+settings = Settings()
