@@ -39,7 +39,7 @@ By default, the server runs on `http://localhost:8000`.
 
 If you want sample data, run:
 ```bash
-python seeds/seed.py
+python seeds/seed.pyp
 ```
 
 This resets the database and prints the default admin credentials.
