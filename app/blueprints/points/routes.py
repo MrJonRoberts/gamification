@@ -1,31 +1,53 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required, current_user
-from wtforms import IntegerField, StringField, SelectField, validators
-from flask_wtf import FlaskForm
-from ...extensions import db
+from __future__ import annotations
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.orm import Session
+
+from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
 from app.models import User, PointLedger, Course
+from app.templating import render_template
+from app.utils import flash
 
-points_bp = Blueprint("points", __name__)
+router = APIRouter(prefix="/points", tags=["points"])
 
-class PointsForm(FlaskForm):
-    user_id = SelectField("Student", coerce=int)
-    delta = IntegerField("Points (+/-)", [validators.DataRequired()])
-    reason = StringField("Reason", [validators.DataRequired()])
-    course_id = SelectField("Course (optional)", coerce=int, choices=[(0, "—")])
+@router.get("/adjust", response_class=HTMLResponse, name="points.adjust")
+def adjust_form(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    students = session.query(User).filter_by(role="student").order_by(User.last_name).all()
+    courses = session.query(Course).order_by(Course.year.desc()).all()
+    return render_template(
+        "points/adjust.html",
+        {
+            "request": request,
+            "students": students,
+            "courses": courses,
+            "current_user": current_user,
+        },
+    )
 
-@points_bp.route("/adjust", methods=["GET","POST"])
-@login_required
-def adjust():
-    form = PointsForm()
-    form.user_id.choices = [(u.id, f"{u.last_name}, {u.first_name}") for u in User.query.filter_by(role="student").order_by(User.last_name).all()]
-    courses = Course.query.order_by(Course.year.desc()).all()
-    form.course_id.choices = [(0, "—")] + [(c.id, f"{c.name} {c.semester}{c.year}") for c in courses]
-    if form.validate_on_submit():
-        course_id = None if form.course_id.data == 0 else form.course_id.data
-        entry = PointLedger(user_id=form.user_id.data, delta=form.delta.data, reason=form.reason.data.strip(),
-                            source="manual", course_id=course_id, issued_by_id=current_user.id)
-        db.session.add(entry)
-        db.session.commit()
-        flash("Points updated.", "success")
-        return redirect(url_for("main.index"))
-    return render_template("points/adjust.html", form=form)
+@router.post("/adjust", name="points.adjust_post")
+def adjust_action(
+    request: Request,
+    user_id: int = Form(...),
+    delta: int = Form(...),
+    reason: str = Form(...),
+    course_id: int = Form(0),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    actual_course_id = None if course_id == 0 else course_id
+    entry = PointLedger(
+        user_id=user_id,
+        delta=delta,
+        reason=reason.strip(),
+        source="manual",
+        course_id=actual_course_id,
+        issued_by_id=current_user.id
+    )
+    session.add(entry)
+    session.commit()
+    flash(request, "Points updated.", "success")
+    return RedirectResponse("/", status_code=303)

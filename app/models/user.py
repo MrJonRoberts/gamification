@@ -41,6 +41,9 @@ class User(db.Model):
         back_populates="marked_by",
     )
 
+    roles = db.relationship("Role", secondary="user_roles", backref="users")
+    groups = db.relationship("Group", secondary="user_groups", backref="users")
+
     def set_password(self, password: str):
         self.password_hash = hash_password(password)
 

@@ -13,5 +13,6 @@ def get_or_create(model: Type[db.Model], defaults: Optional[Dict[str, Any]] = No
     params = {**kwargs, **(defaults or {})}
     instance = model(**params)
     db.session.add(instance)
+    db.session.flush()
     return instance, True
 

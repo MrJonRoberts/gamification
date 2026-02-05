@@ -1,129 +1,109 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app, abort
-from flask_login import login_required, current_user, logout_user
-from ...extensions import db, csrf
-from sqlalchemy import or_
-import os, sys, runpy, importlib.util, shutil
-from functools import wraps
+from __future__ import annotations
+import os, sys, runpy, importlib.util, secrets
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import or_, func
+from sqlalchemy.orm import Session
+
+from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
 from app.models import User
 from app.models.user import Role, Group
-from app.forms.user_forms import UserEditForm
+from app.templating import render_template
+from app.utils import flash
+from app.config import settings
 
-import secrets
+router = APIRouter(prefix="/admin", tags=["admin"])
 
-def admin_required(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
+def admin_required(user: User = Depends(require_user)):
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
 
-        # Adjust this check to your role logic
-        if not current_user.is_authenticated:
-            abort(401)
-        if not current_user.role == "admin":
-            abort(403)
-        return f(*args, **kwargs)
-    return wrapper
-
-
-admin_bp = Blueprint("admin", __name__, template_folder="../../templates")
-
-def _require_admin():
-    return current_user.is_authenticated and getattr(current_user, "role", "") == "admin"
+def paginate(query, page, per_page):
+    total = query.count()
+    items = query.offset((page - 1) * per_page).limit(per_page).all()
+    pages = (total + per_page - 1) // per_page
+    return type('Pagination', (), {
+        "items": items,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": pages,
+        "has_prev": page > 1,
+        "has_next": page < pages,
+        "prev_num": page - 1,
+        "next_num": page + 1,
+        "iter_pages": lambda: range(1, pages + 1)
+    })
 
 def _load_and_run_seed():
-    """
-    Try to import seed.py (project root) and run main() if present;
-    otherwise execute the file with runpy.
-    """
-    project_root = os.path.abspath(os.path.join(current_app.root_path, os.pardir))
-    seed_path = os.path.join(project_root, "seeds/seed.py")
+    seed_path = os.path.join(settings.ROOT_PATH, "seeds/seed.py")
     if not os.path.exists(seed_path):
         raise RuntimeError(f"seed.py not found at {seed_path}")
 
-    # Add project root to sys.path for imports used by seed.py
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
+    if settings.ROOT_PATH not in sys.path:
+        sys.path.insert(0, settings.ROOT_PATH)
 
-    # Prefer calling seed.main() if it exists
     spec = importlib.util.spec_from_file_location("seed", seed_path)
     seed = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(seed)  # type: ignore[attr-defined]
+    spec.loader.exec_module(seed)
     if hasattr(seed, "main") and callable(seed.main):
-        seed.main()  # must create its own app/app_context
+        seed.main()
     else:
-        # Fallback: run as a script (executes top-level code)
         runpy.run_path(seed_path, run_name="__main__")
 
-@admin_bp.route("/db-tools", methods=["GET"])
-@login_required
-def db_tools():
-    if not _require_admin():
-        flash("Admin access required.", "danger")
-        return redirect(url_for("main.index"))
+@router.get("/db-tools", response_class=HTMLResponse, name="admin.db_tools")
+def db_tools(
+    request: Request,
+    current_user: User = Depends(admin_required),
+):
+    return render_template("admin/db_tools.html", {"request": request, "db_uri": settings.SQLALCHEMY_DATABASE_URI, "current_user": current_user})
 
-    # For display only
-    db_uri = current_app.config.get("SQLALCHEMY_DATABASE_URI", "")
-    return render_template("admin/db_tools.html", db_uri=db_uri)
+@router.post("/db-tools/reset-seed", name="admin.reset_seed")
+def reset_seed(
+    request: Request,
+    confirm_text: str = Form(...),
+    clean_icons: bool = Form(False),
+    current_user: User = Depends(admin_required),
+):
+    if confirm_text.strip().upper() != "RESET":
+        flash(request, 'Type "RESET" to confirm.', "warning")
+        return RedirectResponse("/admin/db-tools", status_code=303)
 
-
-@admin_bp.route("/db-tools/reset-seed", methods=["POST"])
-@login_required
-@csrf.exempt  # we'll include CSRF manually; remove this if using {{ form.csrf_token }}
-def reset_seed():
-    if not _require_admin():
-        flash("Admin access required.", "danger")
-        return redirect(url_for("main.index"))
-
-    # Basic CSRF (if you prefer, build a FlaskForm and use {{ form.csrf_token }})
-    token = request.form.get("csrf_token")
-    if not token or token != request.cookies.get("csrf_token"):
-        # If you are using Flask-WTF everywhere, swap this for its token validation
-        pass  # CSRFProtect already validates; this branch is just a placeholder
-
-    confirm_text = (request.form.get("confirm_text") or "").strip().upper()
-    clean_icons = request.form.get("clean_icons") == "on"
-
-    if confirm_text != "RESET":
-        flash('Type "RESET" to confirm.', "warning")
-        return redirect(url_for("admin.db_tools"))
-
-    # Optional: clean uploaded icons (keep folder)
     if clean_icons:
-        icons_dir = os.path.join(current_app.root_path, "static", "icons")
+        icons_dir = os.path.join(settings.ROOT_PATH, "app", "static", "icons")
         if os.path.isdir(icons_dir):
             for name in os.listdir(icons_dir):
                 p = os.path.join(icons_dir, name)
-                # keep dotfiles and directories
                 if os.path.isfile(p) and not name.startswith("."):
                     try:
                         os.remove(p)
                     except OSError:
                         pass
 
-    # Run the seeder (drop/create/seed)
     try:
         _load_and_run_seed()
     except Exception as e:
-        current_app.logger.exception("Reset+seed failed: %s", e)
-        flash(f"Reset failed: {e}", "danger")
-        return redirect(url_for("admin.db_tools"))
+        flash(request, f"Reset failed: {e}", "danger")
+        return RedirectResponse("/admin/db-tools", status_code=303)
 
-    # Force logout to avoid stale sessions referencing old rows
-    logout_user()
-    flash("Database reset & seed complete. Please log in with the seeded admin.", "success")
-    return redirect(url_for("auth.login"))
+    request.session.pop("user_id", None)
+    flash(request, "Database reset & seed complete. Please log in with the seeded admin.", "success")
+    return RedirectResponse("/auth/login", status_code=303)
 
-
-
-@admin_bp.route("/users")
-@login_required
-@admin_required
-def users_index():
-    q = request.args.get("q", "").strip()
-    role = request.args.get("role", "").strip()
-    group = request.args.get("group", "").strip()
-    page = max(int(request.args.get("page", 1)), 1)
+@router.get("/users", response_class=HTMLResponse, name="admin.users_index")
+def users_index(
+    request: Request,
+    q: str = "",
+    role: str = "",
+    group: str = "",
+    page: int = 1,
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
     per_page = 15
-
-    query = User.query
+    query = session.query(User)
 
     if q:
         like = f"%{q}%"
@@ -143,142 +123,133 @@ def users_index():
         query = query.join(User.groups).filter(Group.name == group)
 
     query = query.order_by(User.created_at.desc())
+    pagination = paginate(query, page, per_page)
 
-    pagination = query.order_by(User.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
-
-    users = pagination.items
-
-    roles = Role.query.order_by(Role.name.asc()).all()
-    groups = Group.query.order_by(Group.name.asc()).all()
+    roles = session.query(Role).order_by(Role.name.asc()).all()
+    groups = session.query(Group).order_by(Group.name.asc()).all()
 
     return render_template(
         "admin/users/index.html",
-        users=users,
-        pagination=pagination,
-        q=q,
-        role=role,
-        group=group,
-        roles=roles,
-        groups=groups,
+        {
+            "request": request,
+            "users": pagination.items,
+            "pagination": pagination,
+            "q": q,
+            "role": role,
+            "group": group,
+            "roles": roles,
+            "groups": groups,
+            "current_user": current_user,
+        }
     )
 
+@router.get("/users/{user_id}/edit", response_class=HTMLResponse, name="admin.users_edit")
+def users_edit_form(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-@admin_bp.route("/users/<int:user_id>/edit", methods=["GET", "POST"])
-@login_required
-@admin_required
-def users_edit(user_id):
-    user = User.query.get_or_404(user_id)
-    form = UserEditForm()
+    roles = session.query(Role).order_by(Role.name).all()
+    groups = session.query(Group).order_by(Group.name).all()
 
-    # Load choices first
-    role_rows  = Role.query.order_by(Role.name).all()
-    group_rows = Group.query.order_by(Group.name).all()
-    form.roles.choices  = [(r.id, r.name) for r in role_rows]
-    form.groups.choices = [(g.id, g.name) for g in group_rows]
+    return render_template(
+        "admin/users/edit.html",
+        {
+            "request": request,
+            "u": user,
+            "roles": roles,
+            "groups": groups,
+            "current_user": current_user,
+        }
+    )
 
-    if form.validate_on_submit():
-        # ----- update simple fields (adjust to your model) -----
-        user.first_name = form.first_name.data.strip()
-        user.last_name  = form.last_name.data.strip()
-        user.email      = form.email.data.strip().lower()
-        user.student_code = (form.student_code.data or "").strip() or None
-        user.is_active  = bool(form.is_active.data)
-        user.registration_method = form.registration_method.data
+@router.post("/users/{user_id}/edit", name="admin.users_edit_post")
+def users_edit_action(
+    user_id: int,
+    request: Request,
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    email: str = Form(...),
+    student_code: str = Form(None),
+    is_active: bool = Form(True),
+    registration_method: str = Form("site"),
+    role_ids: List[int] = Form([], alias="roles"),
+    group_ids: List[int] = Form([], alias="groups"),
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-        # ----- roles: support plural OR single -----
-        selected_role_ids = list(map(int, form.roles.data or []))
+    user.first_name = first_name.strip()
+    user.last_name = last_name.strip()
+    user.email = email.strip().lower()
+    user.student_code = (student_code or "").strip() or None
+    user.is_active = is_active
+    user.registered_method = registration_method
 
-        if hasattr(user, "roles"):  # many-to-many
-            user.roles = Role.query.filter(Role.id.in_(selected_role_ids)).all()
-        elif hasattr(user, "role"):  # many-to-one relationship
-            user.role = Role.query.get(selected_role_ids[0]) if selected_role_ids else None
-        elif hasattr(user, "role_id"):  # plain FK column
-            user.role_id = selected_role_ids[0] if selected_role_ids else None
+    if role_ids:
+        user.roles = session.query(Role).filter(Role.id.in_(role_ids)).all()
+    else:
+        user.roles = []
 
-        # ----- groups: support plural OR single -----
-        selected_group_ids = list(map(int, form.groups.data or []))
+    if group_ids:
+        user.groups = session.query(Group).filter(Group.id.in_(group_ids)).all()
+    else:
+        user.groups = []
 
-        if hasattr(user, "groups"):  # many-to-many
-            user.groups = Group.query.filter(Group.id.in_(selected_group_ids)).all()
-        elif hasattr(user, "group"):
-            user.group = Group.query.get(selected_group_ids[0]) if selected_group_ids else None
-        elif hasattr(user, "group_id"):
-            user.group_id = selected_group_ids[0] if selected_group_ids else None
+    session.commit()
+    flash(request, "User updated.", "success")
+    return RedirectResponse("/admin/users", status_code=303)
 
-        db.session.commit()
-        flash("User updated.", "success")
-        return redirect(url_for("admin.users_index"))
-
-    # Prefill only on GET so we don't overwrite POSTed data
-    if request.method == "GET":
-        form.first_name.data = user.first_name
-        form.last_name.data  = user.last_name
-        form.email.data      = user.email
-        form.student_code.data = user.student_code
-        form.is_active.data  = bool(getattr(user, "is_active", True))
-        form.registration_method.data = getattr(user, "registration_method", "site") or "site"
-
-        # ----- preselect roles safely -----
-        current_role_ids = []
-        roles_rel = getattr(user, "roles", None)  # might not exist
-        if roles_rel is not None:
-            # dynamic? (query) -> .all(); else assume iterable/list
-            items = roles_rel.all() if hasattr(roles_rel, "all") else roles_rel
-            current_role_ids = [int(r.id) for r in items if getattr(r, "id", None) is not None]
-        else:
-            one_role = getattr(user, "role", None)
-            if one_role is not None and getattr(one_role, "id", None) is not None:
-                current_role_ids = [int(one_role.id)]
-            elif hasattr(user, "role_id") and getattr(user, "role_id"):
-                current_role_ids = [int(user.role_id)]
-        form.roles.data = current_role_ids
-
-        # ----- preselect groups safely -----
-        current_group_ids = []
-        groups_rel = getattr(user, "groups", None)
-        if groups_rel is not None:
-            items = groups_rel.all() if hasattr(groups_rel, "all") else groups_rel
-            current_group_ids = [int(g.id) for g in items if getattr(g, "id", None) is not None]
-        else:
-            one_group = getattr(user, "group", None)
-            if one_group is not None and getattr(one_group, "id", None) is not None:
-                current_group_ids = [int(one_group.id)]
-            elif hasattr(user, "group_id") and getattr(user, "group_id"):
-                current_group_ids = [int(user.group_id)]
-        form.groups.data = current_group_ids
-
-    return render_template("admin/users/edit.html", form=form, u=user)
-
-
-@admin_bp.route("/users/<int:user_id>/toggle", methods=["POST"])
-@login_required
-@admin_required
-def users_toggle_active(user_id):
-    user = User.query.get_or_404(user_id)
+@router.post("/users/{user_id}/toggle", name="admin.users_toggle_active")
+def users_toggle_active(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     user.is_active = not user.is_active
-    db.session.commit()
-    flash(f"User {'activated' if user.is_active else 'deactivated'}.", "success")
-    return redirect(request.referrer or url_for("admin.users_index"))
+    session.commit()
+    flash(request, f"User {'activated' if user.is_active else 'deactivated'}.", "success")
+    return RedirectResponse(request.headers.get("referer", "/admin/users"), status_code=303)
 
-@admin_bp.route("/users/<int:user_id>/reset-password", methods=["POST"])
-@login_required
-@admin_required
-def users_reset_password(user_id):
-    user = User.query.get_or_404(user_id)
-    # Generate a random temporary password (you may want to email/send separately)
+@router.post("/users/{user_id}/reset-password", name="admin.users_reset_password")
+def users_reset_password(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     new_password = secrets.token_urlsafe(10)
-    user.set_password(new_password)  # assumes User has set_password()
-    db.session.commit()
-    flash(f"Temporary password set: {new_password}", "warning")  # For demo; in prod, email it.
-    return redirect(request.referrer or url_for("admin.users_index"))
+    user.set_password(new_password)
+    session.commit()
+    flash(request, f"Temporary password set: {new_password}", "warning")
+    return RedirectResponse(request.headers.get("referer", "/admin/users"), status_code=303)
 
-@admin_bp.route("/users/<int:user_id>/delete", methods=["POST"])
-@login_required
-@admin_required
-def users_delete(user_id):
-    user = User.query.get_or_404(user_id)
-    db.session.delete(user)
-    db.session.commit()
-    flash("User deleted.", "success")
-    return redirect(url_for("admin.users_index"))
-
+@router.post("/users/{user_id}/delete", name="admin.users_delete")
+def users_delete(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    session.delete(user)
+    session.commit()
+    flash(request, "User deleted.", "success")
+    return RedirectResponse("/admin/users", status_code=303)

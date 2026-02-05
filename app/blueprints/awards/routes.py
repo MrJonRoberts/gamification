@@ -1,56 +1,87 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from flask_login import login_required, current_user
-from wtforms import StringField, TextAreaField, IntegerField, SelectMultipleField, widgets, validators
-from flask_wtf import FlaskForm
-from ...extensions import db
-from app.models import Award, AwardBadge, Badge, User, award_progress, PointLedger
+from __future__ import annotations
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy.orm import Session
+from typing import List
 
-awards_bp = Blueprint("awards", __name__)
+from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
+from app.models import Award, AwardBadge, Badge, User, award_progress
+from app.templating import render_template
+from app.utils import flash
 
-class MultiCheckboxField(SelectMultipleField):
-    widget = widgets.ListWidget(prefix_label=False)
-    option_widget = widgets.CheckboxInput()
+router = APIRouter(prefix="/awards", tags=["awards"])
 
-class AwardForm(FlaskForm):
-    name = StringField("Name", [validators.DataRequired()])
-    description = TextAreaField("Description")
-    points = IntegerField("Extra Points (optional)", [validators.NumberRange(min=0)])
-    badges = MultiCheckboxField("Badges", coerce=int)
+@router.get("/", response_class=HTMLResponse, name="awards.list_awards")
+def list_awards(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    items = session.query(Award).order_by(Award.name).all()
+    return render_template("awards/list.html", {"request": request, "awards": items, "current_user": current_user})
 
-@awards_bp.route("/")
-@login_required
-def list_awards():
-    items = Award.query.order_by(Award.name).all()
-    return render_template("awards/list.html", awards=items)
+@router.get("/create", response_class=HTMLResponse, name="awards.create_award")
+def create_award_form(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    badges = session.query(Badge).order_by(Badge.name).all()
+    return render_template("awards/form.html", {"request": request, "badges": badges, "current_user": current_user})
 
-@awards_bp.route("/create", methods=["GET","POST"])
-@login_required
-def create_award():
-    form = AwardForm()
-    form.badges.choices = [(b.id, b.name) for b in Badge.query.order_by(Badge.name).all()]
-    if form.validate_on_submit():
-        a = Award(name=form.name.data.strip(),
-                  description=form.description.data.strip() if form.description.data else None,
-                  points=form.points.data or 0, created_by_id=current_user.id)
-        db.session.add(a)
-        db.session.flush()
-        seq = 1
-        for bid in form.badges.data:
-            db.session.add(AwardBadge(award_id=a.id, badge_id=int(bid), sequence=seq))
-            seq += 1
-        db.session.commit()
-        flash("Award created.", "success")
-        return redirect(url_for("awards.list_awards"))
-    return render_template("awards/form.html", form=form)
+@router.post("/create", name="awards.create_award_post")
+def create_award_action(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(None),
+    points: int = Form(0),
+    badges: List[int] = Form([]),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    a = Award(
+        name=name.strip(),
+        description=description.strip() if description else None,
+        points=points,
+        created_by_id=current_user.id
+    )
+    session.add(a)
+    session.flush()
 
-@awards_bp.route("/progress/<int:award_id>/<int:user_id>")
-@login_required
-def progress(award_id, user_id):
-    a = Award.query.get_or_404(award_id)
-    u = User.query.get_or_404(user_id)
-    progress = award_progress(user_id=u.id, award_id=a.id)
-    # Award completion date is max earned_at if all earned
-    earned_dates = [v["earned_at"] for v in progress.values() if v["earned_at"]]
-    completed = len(progress)>0 and all(v["earned"] for v in progress.values())
+    for i, bid in enumerate(badges, start=1):
+        session.add(AwardBadge(award_id=a.id, badge_id=bid, sequence=i))
+
+    session.commit()
+    flash(request, "Award created.", "success")
+    return RedirectResponse("/awards/", status_code=303)
+
+@router.get("/progress/{award_id}/{user_id}", response_class=HTMLResponse, name="awards.progress")
+def progress(
+    award_id: int,
+    user_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    a = session.get(Award, award_id)
+    u = session.get(User, user_id)
+    if not a or not u:
+        raise HTTPException(status_code=404, detail="Award or User not found")
+
+    prog = award_progress(user_id=u.id, award_id=a.id)
+    earned_dates = [v["earned_at"] for v in prog.values() if v["earned_at"]]
+    completed = len(prog) > 0 and all(v["earned"] for v in prog.values())
     completed_at = max(earned_dates) if completed and earned_dates else None
-    return render_template("awards/progress.html", award=a, user=u, progress=progress, completed=completed, completed_at=completed_at)
+
+    return render_template(
+        "awards/progress.html",
+        {
+            "request": request,
+            "award": a,
+            "user": u,
+            "progress": prog,
+            "completed": completed,
+            "completed_at": completed_at,
+            "current_user": current_user,
+        },
+    )

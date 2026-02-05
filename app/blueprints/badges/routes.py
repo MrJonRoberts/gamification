@@ -1,28 +1,20 @@
-# app/blueprints/badges/routes.py
-
 from __future__ import annotations
-
 import csv
 import io
 import os
 import zipfile
 import re
-from flask import (
-    Blueprint,
-    current_app,
-    flash,
-    redirect,
-    render_template,
-    request,
-    url_for,
-    Response,
-)
-from flask_login import current_user, login_required
-from sqlalchemy import func
+from typing import Optional
 
-from ...extensions import db
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
+from app.extensions import db
 from app.models import Badge, BadgeGrant, User, Award, AwardBadge
-from ...services.images import (
+from app.services.images import (
     allowed_image,
     open_image,
     square,
@@ -30,209 +22,230 @@ from ...services.images import (
     badge_fallback,
     remove_web_path,
 )
-from ...services.awarding import grant_badge
-from .forms import BadgeForm  # adjust if your form is elsewhere
+from app.services.awarding import grant_badge
+from app.templating import render_template
+from app.utils import flash
 
-badges_bp = Blueprint("badges", __name__)
+router = APIRouter(prefix="/badges", tags=["badges"])
 
+def _has_role(user: User | AnonymousUser, *roles: str) -> bool:
+    return getattr(user, "is_authenticated", False) and getattr(user, "role", "") in roles
 
-# -----------------------------
-# Small role helpers
-# -----------------------------
-def _has_role(*roles: str) -> bool:
-    return current_user.is_authenticated and getattr(current_user, "role", "") in roles
+@router.get("/", response_class=HTMLResponse, name="badges.list_badges")
+def list_badges(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    badges = session.query(Badge).order_by(Badge.name.asc()).all()
+    return render_template("badges/list.html", {"request": request, "badges": badges, "current_user": current_user})
 
+@router.get("/create", response_class=HTMLResponse, name="badges.create_badge")
+def create_badge_form(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    if not _has_role(current_user, "admin", "issuer"):
+        flash(request, "Only staff can create badges.", "danger")
+        return RedirectResponse("/badges/", status_code=303)
+    return render_template("badges/form.html", {"request": request, "current_user": current_user})
 
-# -----------------------------
-# List
-# -----------------------------
-@badges_bp.route("/")
-@login_required
-def list_badges():
-    badges = Badge.query.order_by(Badge.name.asc()).all()
-    return render_template("badges/list.html", badges=badges)
+@router.post("/create", name="badges.create_badge_post")
+async def create_badge_action(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(None),
+    points: int = Form(0),
+    icon: UploadFile = File(None),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if not _has_role(current_user, "admin", "issuer"):
+        flash(request, "Only staff can create badges.", "danger")
+        return RedirectResponse("/badges/", status_code=303)
 
+    name = name.strip()
+    exists = session.query(Badge).filter(func.lower(Badge.name) == name.lower()).first()
+    if exists:
+        flash(request, "A badge with that name already exists.", "warning")
+        return render_template("badges/form.html", {"request": request, "current_user": current_user})
 
-# -----------------------------
-# Create
-# -----------------------------
-@badges_bp.route("/create", methods=["GET", "POST"])
-@login_required
-def create_badge():
-    if not _has_role("admin", "issuer"):
-        flash("Only staff can create badges.", "danger")
-        return redirect(url_for("badges.list_badges"))
-
-    form = BadgeForm()
-    if form.validate_on_submit():
-        name = (form.name.data or "").strip()
-
-        # Uniqueness
-        exists = db.session.execute(
-            db.select(Badge.id).where(func.lower(Badge.name) == name.lower())
-        ).first()
-        if exists:
-            flash("A badge with that name already exists.", "warning")
-            return render_template("badges/form.html", form=form)
-
-        # Icon: uploaded or fallback avatar
-        file = form.icon.data
-        pil = None
-        if file and getattr(file, "filename", ""):
-            if not allowed_image(file.filename):
-                flash("Icon must be PNG/JPG/JPEG/WEBP.", "danger")
-                return render_template("badges/form.html", form=form)
-            try:
-                pil = open_image(file.stream)
-            except ValueError:
-                flash("The uploaded file isn’t a valid image.", "danger")
-                return render_template("badges/form.html", form=form)
-        else:
-            pil = badge_fallback(name)
-
-        icon_path = save_png(square(pil), "icons", name)
-
+    pil = None
+    if icon and icon.filename:
+        if not allowed_image(icon.filename):
+            flash(request, "Icon must be PNG/JPG/JPEG/WEBP.", "danger")
+            return render_template("badges/form.html", {"request": request, "current_user": current_user})
         try:
-            b = Badge(
-                name=name,
-                description=(form.description.data or "").strip() or None,
-                icon=icon_path,
-                points=form.points.data or 0,
-                created_by_id=current_user.id,
-            )
-            db.session.add(b)
-            db.session.commit()
-            flash("Badge created.", "success")
-            return redirect(url_for("badges.list_badges"))
-        except Exception as e:
-            db.session.rollback()
-            remove_web_path(icon_path)
-            current_app.logger.exception("Error creating badge: %s", e)
-            flash("Could not create the badge due to a server error.", "danger")
+            contents = await icon.read()
+            pil = open_image(io.BytesIO(contents))
+        except ValueError:
+            flash(request, "The uploaded file isn’t a valid image.", "danger")
+            return render_template("badges/form.html", {"request": request, "current_user": current_user})
+    else:
+        pil = badge_fallback(name)
 
-    return render_template("badges/form.html", form=form)
-
-
-# -----------------------------
-# Edit (admin only)
-# -----------------------------
-@badges_bp.route("/edit/<int:badge_id>", methods=["GET", "POST"])
-@login_required
-def edit_badge(badge_id: int):
-    if not _has_role("admin"):
-        flash("Admin access required.", "danger")
-        return redirect(url_for("badges.list_badges"))
-
-    badge = Badge.query.get_or_404(badge_id)
-    form = BadgeForm(obj=badge)
-
-    if form.validate_on_submit():
-        new_name = (form.name.data or "").strip()
-
-        # Uniqueness excluding self
-        clash = db.session.execute(
-            db.select(Badge.id).where(
-                func.lower(Badge.name) == new_name.lower(), Badge.id != badge.id
-            )
-        ).first()
-        if clash:
-            flash("Another badge already uses that name.", "warning")
-            return render_template("badges/edit.html", form=form, badge=badge)
-
-        old_icon = badge.icon
-
-        # Update fields
-        badge.name = new_name
-        badge.description = (form.description.data or "").strip() or None
-        badge.points = form.points.data or 0
-
-        # Optional icon replacement
-        file = form.icon.data
-        if file and getattr(file, "filename", ""):
-            if not allowed_image(file.filename):
-                flash("Icon must be PNG/JPG/JPEG/WEBP.", "danger")
-                return render_template("badges/edit.html", form=form, badge=badge)
-            try:
-                pil = open_image(file.stream)
-            except ValueError:
-                flash("Uploaded icon is not a valid image.", "danger")
-                return render_template("badges/edit.html", form=form, badge=badge)
-
-            new_icon = save_png(square(pil), "icons", badge.name)
-            badge.icon = new_icon
-
-        try:
-            db.session.commit()
-            # Clean old icon if changed
-            if old_icon and badge.icon != old_icon:
-                remove_web_path(old_icon)
-
-            flash("Badge updated.", "success")
-            return redirect(url_for("badges.list_badges"))
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.exception("Failed to edit badge: %s", e)
-            flash("Could not update the badge due to a server error.", "danger")
-
-    return render_template("badges/edit.html", form=form, badge=badge)
-
-
-# -----------------------------
-# Grant (issuer/admin)
-# -----------------------------
-@badges_bp.route("/grant/<int:badge_id>", methods=["GET", "POST"])
-@login_required
-def grant(badge_id: int):
-    if not _has_role("admin", "issuer"):
-        flash("Only staff can grant badges.", "danger")
-        return redirect(url_for("badges.list_badges"))
-
-    badge = Badge.query.get_or_404(badge_id)
-
-    if request.method == "POST":
-        user_id = request.form.get("user_id", type=int)
-        if not user_id:
-            flash("Please select a student.", "warning")
-            return redirect(url_for("badges.grant", badge_id=badge.id))
-
-        try:
-            _, created = grant_badge(user_id=user_id, badge_id=badge.id, issued_by_id=current_user.id)
-            flash("Badge granted." if created else "Student already has that badge.", "success" if created else "info")
-        except Exception as e:
-            current_app.logger.exception("Grant failed: %s", e)
-            flash("Failed to grant badge.", "danger")
-
-        return redirect(url_for("badges.list_badges"))
-
-    # GET: simple page with a select of students
-    students = User.query.filter_by(role="student").order_by(User.last_name, User.first_name).all()
-    return render_template("badges/grant.html", badge=badge, students=students)
-
-
-# -----------------------------
-# Bulk upload (issuer/admin)
-# ZIP with one CSV and optional icons
-# -----------------------------
-@badges_bp.route("/bulk", methods=["GET", "POST"])
-@login_required
-def bulk_badges():
-    if not _has_role("admin", "issuer"):
-        flash("Only staff can bulk upload badges.", "danger")
-        return redirect(url_for("badges.list_badges"))
-
-    if request.method == "GET":
-        return render_template("badges/bulk.html")
-
-    zip_file = request.files.get("zipfile")
-    if not zip_file or not zip_file.filename.lower().endswith(".zip"):
-        flash("Please upload a .zip file.", "warning")
-        return render_template("badges/bulk.html")
-
-    saved_files: list[str] = []  # web paths to delete on rollback
+    icon_path = save_png(square(pil), "icons", name)
 
     try:
-        with zipfile.ZipFile(zip_file.stream) as zf:
-            # 1) Find CSV
+        b = Badge(
+            name=name,
+            description=description.strip() if description else None,
+            icon=icon_path,
+            points=points,
+            created_by_id=current_user.id,
+        )
+        session.add(b)
+        session.commit()
+        flash(request, "Badge created.", "success")
+        return RedirectResponse("/badges/", status_code=303)
+    except Exception as e:
+        session.rollback()
+        remove_web_path(icon_path)
+        flash(request, "Could not create the badge due to a server error.", "danger")
+        return render_template("badges/form.html", {"request": request, "current_user": current_user})
+
+@router.get("/edit/{badge_id}", response_class=HTMLResponse, name="badges.edit_badge")
+def edit_badge_form(
+    badge_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if not _has_role(current_user, "admin"):
+        flash(request, "Admin access required.", "danger")
+        return RedirectResponse("/badges/", status_code=303)
+
+    badge = session.get(Badge, badge_id)
+    if not badge:
+        raise HTTPException(status_code=404, detail="Badge not found")
+
+    return render_template("badges/edit.html", {"request": request, "badge": badge, "current_user": current_user})
+
+@router.post("/edit/{badge_id}", name="badges.edit_badge_post")
+async def edit_badge_action(
+    badge_id: int,
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(None),
+    points: int = Form(0),
+    icon: UploadFile = File(None),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if not _has_role(current_user, "admin"):
+        flash(request, "Admin access required.", "danger")
+        return RedirectResponse("/badges/", status_code=303)
+
+    badge = session.get(Badge, badge_id)
+    if not badge:
+        raise HTTPException(status_code=404, detail="Badge not found")
+
+    new_name = name.strip()
+    clash = session.query(Badge).filter(func.lower(Badge.name) == new_name.lower(), Badge.id != badge.id).first()
+    if clash:
+        flash(request, "Another badge already uses that name.", "warning")
+        return render_template("badges/edit.html", {"request": request, "badge": badge, "current_user": current_user})
+
+    old_icon = badge.icon
+    badge.name = new_name
+    badge.description = description.strip() if description else None
+    badge.points = points
+
+    if icon and icon.filename:
+        if not allowed_image(icon.filename):
+            flash(request, "Icon must be PNG/JPG/JPEG/WEBP.", "danger")
+            return render_template("badges/edit.html", {"request": request, "badge": badge, "current_user": current_user})
+        try:
+            contents = await icon.read()
+            pil = open_image(io.BytesIO(contents))
+            new_icon = save_png(square(pil), "icons", badge.name)
+            badge.icon = new_icon
+        except ValueError:
+            flash(request, "Uploaded icon is not a valid image.", "danger")
+            return render_template("badges/edit.html", {"request": request, "badge": badge, "current_user": current_user})
+
+    try:
+        session.commit()
+        if old_icon and badge.icon != old_icon:
+            remove_web_path(old_icon)
+        flash(request, "Badge updated.", "success")
+        return RedirectResponse("/badges/", status_code=303)
+    except Exception:
+        session.rollback()
+        flash(request, "Could not update the badge due to a server error.", "danger")
+        return render_template("badges/edit.html", {"request": request, "badge": badge, "current_user": current_user})
+
+@router.get("/grant/{badge_id}", response_class=HTMLResponse, name="badges.grant")
+def grant_form(
+    badge_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if not _has_role(current_user, "admin", "issuer"):
+        flash(request, "Only staff can grant badges.", "danger")
+        return RedirectResponse("/badges/", status_code=303)
+
+    badge = session.get(Badge, badge_id)
+    if not badge:
+        raise HTTPException(status_code=404, detail="Badge not found")
+
+    students = session.query(User).filter_by(role="student").order_by(User.last_name, User.first_name).all()
+    return render_template("badges/grant.html", {"request": request, "badge": badge, "students": students, "current_user": current_user})
+
+@router.post("/grant/{badge_id}", name="badges.grant_post")
+def grant_action(
+    badge_id: int,
+    request: Request,
+    user_id: int = Form(...),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if not _has_role(current_user, "admin", "issuer"):
+        flash(request, "Only staff can grant badges.", "danger")
+        return RedirectResponse("/badges/", status_code=303)
+
+    badge = session.get(Badge, badge_id)
+    if not badge:
+        raise HTTPException(status_code=404, detail="Badge not found")
+
+    try:
+        _, created = grant_badge(user_id=user_id, badge_id=badge.id, issued_by_id=current_user.id)
+        flash(request, "Badge granted." if created else "Student already has that badge.", "success" if created else "info")
+    except Exception:
+        flash(request, "Failed to grant badge.", "danger")
+
+    return RedirectResponse("/badges/", status_code=303)
+
+@router.get("/bulk", response_class=HTMLResponse, name="badges.bulk_badges")
+def bulk_badges_form(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    if not _has_role(current_user, "admin", "issuer"):
+        flash(request, "Only staff can bulk upload badges.", "danger")
+        return RedirectResponse("/badges/", status_code=303)
+    return render_template("badges/bulk.html", {"request": request, "current_user": current_user})
+
+@router.post("/bulk", name="badges.bulk_badges_post")
+async def bulk_badges_action(
+    request: Request,
+    zipfile_upload: UploadFile = File(..., alias="zipfile"),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if not _has_role(current_user, "admin", "issuer"):
+        flash(request, "Only staff can bulk upload badges.", "danger")
+        return RedirectResponse("/badges/", status_code=303)
+
+    if not zipfile_upload.filename.lower().endswith(".zip"):
+        flash(request, "Please upload a .zip file.", "warning")
+        return RedirectResponse("/badges/bulk", status_code=303)
+
+    saved_files: list[str] = []
+    try:
+        contents = await zipfile_upload.read()
+        with zipfile.ZipFile(io.BytesIO(contents)) as zf:
             csv_members = [n for n in zf.namelist() if n.lower().endswith(".csv")]
             if not csv_members:
                 raise ValueError("No CSV found in the ZIP.")
@@ -240,14 +253,12 @@ def bulk_badges():
                 raise ValueError("Multiple CSV files found; include exactly one.")
             csv_bytes = zf.read(csv_members[0])
 
-            # 2) Build icon index (basename -> member path)
             icon_map: dict[str, str] = {}
             for n in zf.namelist():
                 base = os.path.basename(n)
                 if base and allowed_image(base):
                     icon_map[base.lower()] = n
 
-            # 3) Parse CSV
             text = io.TextIOWrapper(io.BytesIO(csv_bytes), encoding="utf-8-sig", newline="")
             reader = csv.DictReader(text)
             if not reader.fieldnames:
@@ -258,9 +269,8 @@ def bulk_badges():
             missing = required - cols
             if missing:
                 raise ValueError(f"CSV missing required columns: {', '.join(sorted(missing))}")
-            has_award = "award" in cols  # NEW (optional)
+            has_award = "award" in cols
 
-            # 4) Validate rows + detect duplicates
             rows: list[tuple[str, int, str | None, str, list[str]]] = []
             names_lower: set[str] = set()
             errors: list[str] = []
@@ -283,64 +293,50 @@ def bulk_badges():
                 names_lower.add(key)
 
                 try:
-                    points = int(points_raw or 0)
+                    pts = int(points_raw or 0)
                 except ValueError:
                     errors.append(f"Line {i}: points '{points_raw}' is not an integer.")
                     continue
 
-                # support multiple awards split by comma or semicolon
-                awards = [a.strip() for a in re.split(r"[;,]", award_cell) if a.strip()] if award_cell else []
-
-                rows.append((name, points, description, icon_name, awards))
+                awards_list = [a.strip() for a in re.split(r"[;,]", award_cell) if a.strip()] if award_cell else []
+                rows.append((name, pts, description, icon_name, awards_list))
 
             if names_lower:
-                existing = (
-                    db.session.execute(
-                        db.select(Badge.name).where(func.lower(Badge.name).in_(list(names_lower)))
-                    )
-                    .scalars()
+                existing_badges = (
+                    session.query(Badge.name)
+                    .filter(func.lower(Badge.name).in_(list(names_lower)))
                     .all()
                 )
-                if existing:
-                    errors.append("Already exists in DB: " + ", ".join(sorted(existing)))
+                if existing_badges:
+                    errors.append("Already exists in DB: " + ", ".join(sorted([b[0] for b in existing_badges])))
 
             if errors:
                 raise ValueError(" • " + " • ".join(errors))
 
-            # ---- Award caches (to avoid repeated lookups) ----
-            award_cache: dict[str, Award] = {}  # lower(name) -> Award
-            next_seq: dict[int, int] = {}       # award_id -> next sequence
+            award_cache: dict[str, Award] = {}
+            next_seq: dict[int, int] = {}
 
             def _get_or_create_award(award_name: str) -> Award:
                 key = award_name.strip().lower()
                 if key in award_cache:
                     return award_cache[key]
-                # find existing
-                aw = (
-                    db.session.query(Award)
-                    .filter(func.lower(Award.name) == key)
-                    .first()
-                )
+                aw = session.query(Award).filter(func.lower(Award.name) == key).first()
                 if not aw:
                     aw = Award(name=award_name.strip(), description=None, points=0, created_by_id=current_user.id)
-                    db.session.add(aw)
-                    db.session.flush()  # get id
+                    session.add(aw)
+                    session.flush()
                 award_cache[key] = aw
-                # prime next_seq for this award
                 if aw.id not in next_seq:
-                    max_seq = db.session.query(func.coalesce(func.max(AwardBadge.sequence), 0)).filter(
+                    max_seq = session.query(func.coalesce(func.max(AwardBadge.sequence), 0)).filter(
                         AwardBadge.award_id == aw.id
                     ).scalar() or 0
                     next_seq[aw.id] = int(max_seq) + 1
                 return aw
 
-            # 5) Create badges (and link to awards) — single commit at end
-            created_badges = 0
-            created_awards = 0
-            created_links = 0
+            created_badges_count = 0
+            created_links_count = 0
 
-            for (name, points, description, icon_name, awards) in rows:
-                # Icon from ZIP (if present) else fallback
+            for (name, pts, desc, icon_name, awards_list) in rows:
                 pil = None
                 if icon_name:
                     member = icon_map.get(os.path.basename(icon_name).lower())
@@ -358,58 +354,40 @@ def bulk_badges():
 
                 b = Badge(
                     name=name,
-                    description=description,
+                    description=desc,
                     icon=icon_path,
-                    points=points,
+                    points=pts,
                     created_by_id=current_user.id,
                 )
-                db.session.add(b)
-                db.session.flush()  # get b.id for linking
-                created_badges += 1
+                session.add(b)
+                session.flush()
+                created_badges_count += 1
 
-                # Link to awards (create award if needed)
-                for aw_name in awards:
+                for aw_name in awards_list:
                     aw = _get_or_create_award(aw_name)
-                    if aw in award_cache.values() and aw.id not in next_seq:
-                        # should be primed above; guard just in case
-                        next_seq[aw.id] = 1
-
-                    # avoid duplicate link
-                    exists_link = (
-                        db.session.query(AwardBadge.id)
-                        .filter_by(award_id=aw.id, badge_id=b.id)
-                        .first()
-                    )
+                    exists_link = session.query(AwardBadge).filter_by(award_id=aw.id, badge_id=b.id).first()
                     if not exists_link:
                         seq = next_seq.get(aw.id, 1)
-                        db.session.add(AwardBadge(award_id=aw.id, badge_id=b.id, sequence=seq))
+                        session.add(AwardBadge(award_id=aw.id, badge_id=b.id, sequence=seq))
                         next_seq[aw.id] = seq + 1
-                        created_links += 1
+                        created_links_count += 1
 
-            # Count newly created awards (those that weren’t in DB)
-            created_awards = sum(1 for a in award_cache.values() if a.id and a.id in next_seq and next_seq[a.id] == 1)
-
-            db.session.commit()
-            msg = f"Bulk upload complete: {created_badges} badges created."
+            session.commit()
+            msg = f"Bulk upload complete: {created_badges_count} badges created."
             if has_award:
-                msg += f" Linked {created_links} badge↔award pairs."
-            flash(msg, "success")
-            return redirect(url_for("badges.list_badges"))
+                msg += f" Linked {created_links_count} badge↔award pairs."
+            flash(request, msg, "success")
+            return RedirectResponse("/badges/", status_code=303)
 
     except Exception as e:
-        db.session.rollback()
+        session.rollback()
         for web_path in saved_files:
             remove_web_path(web_path)
-        flash(f"Bulk upload failed. No changes were saved. Details: {e}", "danger")
-        return render_template("badges/bulk.html")
+        flash(request, f"Bulk upload failed. No changes were saved. Details: {e}", "danger")
+        return RedirectResponse("/badges/bulk", status_code=303)
 
-
-# -----------------------------
-# CSV template for bulk
-# -----------------------------
-@badges_bp.route("/bulk-template.csv")
-@login_required
-def bulk_badges_template():
+@router.get("/bulk-template.csv", name="badges.bulk_badges_template")
+def bulk_badges_template(current_user: User | AnonymousUser = Depends(require_user)):
     csv_text = (
         "name,points,description,icon_name,award\n"
         "First Program,10,Submitted your first working program.,first_program.png,Python Starter\n"
@@ -418,6 +396,6 @@ def bulk_badges_template():
     )
     return Response(
         csv_text,
-        mimetype="text/csv",
+        media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=badges_template.csv"},
     )

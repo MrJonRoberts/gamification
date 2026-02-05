@@ -1,8 +1,5 @@
+from __future__ import annotations
 from datetime import date, datetime, time, timedelta
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, current_app
-from flask_login import login_required
-from sqlalchemy import and_
-
 import json
 import subprocess
 import sys
@@ -10,20 +7,24 @@ import os
 import re
 from typing import Dict, List, Any, Optional
 
-from app.services.schedule_services import *
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Body
+from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import and_, func
+from sqlalchemy.orm import Session
 
+from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
 from app.models.schedule import Term, WeeklyPattern, Lesson, AcademicYear
 from app.extensions import db
 from app.models import Course
 from app.services.orm_utils import first_model_attribute
-
+from app.services.schedule_services import *
 from app.services.qld_term_dates_scraper import *
+from app.templating import render_template
+from app.utils import flash
+from app.config import settings
 
-schedule_bp = Blueprint("schedule", __name__, url_prefix="/courses")
+router = APIRouter(prefix="/courses", tags=["schedule"])
 
-
-
-# Helper: pick the Lesson datetime attribute to read/order/set
 LESSON_START_FIELDS = ["starts_at", "start_time", "start_at", "datetime", "date"]
 SEMESTER_TO_TERMS = {
     "S1": [1, 2],
@@ -44,34 +45,10 @@ TERM_REGEX = re.compile(
     re.IGNORECASE
 )
 
-
-def get_lesson_start_attr():
-    return first_model_attribute(Lesson, LESSON_START_FIELDS)
-
-def lesson_order_column():
-    return get_lesson_start_attr() or Lesson.id
-
-def ensure_year_obj(year: int) -> AcademicYear | None:
-    return AcademicYear.query.filter_by(year=year).first()
-
-def get_term_range(ay: AcademicYear, term: int) -> tuple[date | None, date | None]:
-    pairs = {
-        1: (ay.term1_start, ay.term1_end),
-        2: (ay.term2_start, ay.term2_end),
-        3: (ay.term3_start, ay.term3_end),
-        4: (ay.term4_start, ay.term4_end),
-    }
-    return pairs.get(term, (None, None))
-
-
 def _instance_data_path(filename: str) -> str:
-    os.makedirs(current_app.instance_path, exist_ok=True)
-    return os.path.join(current_app.instance_path, filename)
-
-def _safe_next(next_url: str, default_endpoint: str, **values):
-    if next_url and next_url.startswith("/"):
-        return next_url
-    return url_for(default_endpoint, **values)
+    path = os.path.join(settings.ROOT_PATH, "instance")
+    os.makedirs(path, exist_ok=True)
+    return os.path.join(path, filename)
 
 def _iso(y: int, d: str, m_name: str) -> str:
     m = MONTHS.get(m_name.capitalize())
@@ -80,7 +57,6 @@ def _iso(y: int, d: str, m_name: str) -> str:
     return f"{y:04d}-{m:02d}-{int(d):02d}"
 
 def split_and_normalise_terms(raw_text: str, year: int) -> List[Dict[str, Any]]:
-    """Return a list of term dicts extracted from a raw combined line."""
     terms: List[Dict[str, Any]] = []
     hay = (raw_text or "").replace("\xa0", " ")
     for m in TERM_REGEX.finditer(hay):
@@ -99,7 +75,6 @@ def split_and_normalise_terms(raw_text: str, year: int) -> List[Dict[str, Any]]:
     return terms
 
 def _normalise_terms_for_year(raw_terms: List[Dict[str, Any]], year: int) -> List[Dict[str, Any]]:
-    """Expand any combined lines and prefer entries with populated dates."""
     normalised: List[Dict[str, Any]] = []
     for t in raw_terms or []:
         raw = (t.get("raw") or "").strip()
@@ -111,7 +86,6 @@ def _normalise_terms_for_year(raw_terms: List[Dict[str, Any]], year: int) -> Lis
                 continue
         normalised.append(t)
 
-    # Deduplicate by term number, prefer ones with start/end
     by_num: Dict[int, Dict[str, Any]] = {}
     for t in normalised:
         n = int(t.get("number")) if t.get("number") is not None else None
@@ -127,121 +101,123 @@ def _normalise_terms_for_year(raw_terms: List[Dict[str, Any]], year: int) -> Lis
             by_num[n] = t
 
     out = sorted(by_num.values(), key=lambda x: int(x.get("number", 0)))
-    # Ensure name exists
     for t in out:
         if not t.get("name"):
             t["name"] = f"Term {t.get('number')}"
     return out
 
-# ---------- ROUTES ----------
+@router.get("/{course_id}/schedule/setup", response_class=HTMLResponse, name="schedule.schedule_setup")
+def schedule_setup_form(
+    course_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
-@schedule_bp.route("/<int:course_id>/schedule/setup", methods=["GET", "POST"])
-@login_required
-def schedule_setup(course_id):
-    course = Course.query.get_or_404(course_id)
-
-    if request.method == "POST":
-        year = int(request.form.get("year") or course.year)
-        mode = request.form.get("term_mode", "use_semester")  # 'use_semester' or 'pick_terms'
-
-        if mode == "use_semester":
-            term_numbers = SEMESTER_TO_TERMS.get(course.semester, [1, 2, 3, 4])
-        else:
-            term_numbers = sorted({int(x) for x in request.form.getlist("terms")})
-
-        if not term_numbers:
-            flash("Select at least one term.", "danger")
-            return redirect(request.url)
-
-        # Ensure year & required terms exist
-        if not ensure_year_has_terms(year, term_numbers):
-            flash(f"Year {year} / terms {term_numbers} not configured yet.", "warning")
-            return redirect(url_for("schedule.year_setup", year=year,
-                                    next=url_for("schedule.schedule_setup", course_id=course.id)))
-
-        # Time & days
-        start_hhmm = request.form.get("start_time", "09:00")
-        end_hhmm   = request.form.get("end_time", "10:00")
-        start_time = parse_time(start_hhmm, time(9, 0))
-        end_time = parse_time(end_hhmm, time(10, 0))
-
-        if end_time <= start_time:
-            flash("End time must be after start time.", "danger")
-            return redirect(request.url)
-
-        # Selected days of week (0=Mon..6=Sun)
-        days = sorted({int(x) for x in request.form.getlist("days") if x.isdigit() and 0 <= int(x) <= 6})
-        if not days:
-            flash("Choose at least one day of the week.", "danger")
-            return redirect(request.url)
-
-        # Persist simple weekly patterns (one per DOW)
-        for dow in days:
-            wp = WeeklyPattern.query.filter_by(course_id=course.id, day_of_week=dow).first()
-            if not wp:
-                wp = WeeklyPattern(course_id=course.id, day_of_week=dow)
-                db.session.add(wp)
-            wp.start_time = start_time
-            wp.end_time = end_time
-            wp.is_active = True
-        db.session.flush()
-
-        created = 0
-        # Generate lessons for each selected term
-        terms = get_terms_for(year, term_numbers)
-        for term in terms:
-            cursor = term.start_date
-            while cursor <= term.end_date:
-                if cursor.weekday() in days:
-                    # Uniqueness guard (unique on course_id + date)
-                    exists = Lesson.query.filter_by(course_id=course.id, date=cursor).first()
-                    if not exists:
-                        lesson = Lesson(
-                            course_id=course.id,
-                            term_id=term.id,
-                            date=cursor,
-                            week_of_term=week_of_term_for(cursor, term),
-                            status="SCHEDULED",
-                            start_time=start_time,
-                            end_time=end_time,
-                        )
-                        db.session.add(lesson)
-                        created += 1
-                cursor += timedelta(days=1)
-
-        db.session.commit()
-        flash(f"Created {created} lesson(s) for {course.name}.", "success")
-        return redirect(url_for("schedule.course_schedule", course_id=course.id))
-
-    # GET
     default_year = course.year
     default_terms = SEMESTER_TO_TERMS.get(course.semester, [1, 2, 3, 4])
-    patterns = (WeeklyPattern.query
+    patterns = (session.query(WeeklyPattern)
                 .filter_by(course_id=course.id, is_active=True)
                 .order_by(WeeklyPattern.day_of_week.asc()).all())
     return render_template("schedule/setup.html",
-                           course=course,
-                           default_year=default_year,
-                           default_terms=default_terms,
-                           patterns=patterns)
+                           {
+                               "request": request,
+                               "course": course,
+                               "default_year": default_year,
+                               "default_terms": default_terms,
+                               "patterns": patterns,
+                               "current_user": current_user,
+                           })
 
-# Year setup flow
-# GET  /courses/year/setup?year=2025&next=/courses/3/schedule/setup
-# POST /courses/year/scrape
-# POST /courses/year/confirm
+@router.post("/{course_id}/schedule/setup", name="schedule.schedule_setup_post")
+def schedule_setup_action(
+    course_id: int,
+    request: Request,
+    year: int = Form(None),
+    term_mode: str = Form("use_semester"),
+    terms: List[int] = Form([]),
+    start_time_str: str = Form("09:00", alias="start_time"),
+    end_time_str: str = Form("10:00", alias="end_time"),
+    days: List[int] = Form([]),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
-@schedule_bp.get("/year/setup")
-@login_required
-def year_setup():
-    """Render the year configuration page with preview if a staged JSON exists."""
-    try:
-        year = int(request.args.get("year", ""))
-    except ValueError:
-        abort(400, "year is required")
+    year = year or course.year
+    if term_mode == "use_semester":
+        term_numbers = SEMESTER_TO_TERMS.get(course.semester, [1, 2, 3, 4])
+    else:
+        term_numbers = sorted(set(terms))
 
-    next_url = request.args.get("next", "")
+    if not term_numbers:
+        flash(request, "Select at least one term.", "danger")
+        return RedirectResponse(f"/courses/{course_id}/schedule/setup", status_code=303)
 
-    existing = AcademicYear.query.filter_by(year=year).first()
+    if not ensure_year_has_terms(year, term_numbers):
+        flash(request, f"Year {year} / terms {term_numbers} not configured yet.", "warning")
+        return RedirectResponse(f"/admin/year/setup?year={year}&next=/courses/{course_id}/schedule/setup", status_code=303)
+
+    start_time = parse_time(start_time_str, time(9, 0))
+    end_time = parse_time(end_time_str, time(10, 0))
+
+    if end_time <= start_time:
+        flash(request, "End time must be after start time.", "danger")
+        return RedirectResponse(f"/courses/{course_id}/schedule/setup", status_code=303)
+
+    if not days:
+        flash(request, "Choose at least one day of the week.", "danger")
+        return RedirectResponse(f"/courses/{course_id}/schedule/setup", status_code=303)
+
+    for dow in days:
+        wp = session.query(WeeklyPattern).filter_by(course_id=course.id, day_of_week=dow).first()
+        if not wp:
+            wp = WeeklyPattern(course_id=course.id, day_of_week=dow)
+            session.add(wp)
+        wp.start_time = start_time
+        wp.end_time = end_time
+        wp.is_active = True
+    session.flush()
+
+    created = 0
+    ts = get_terms_for(year, term_numbers)
+    for term in ts:
+        cursor = term.start_date
+        while cursor <= term.end_date:
+            if cursor.weekday() in days:
+                exists = session.query(Lesson).filter_by(course_id=course.id, date=cursor).first()
+                if not exists:
+                    lesson = Lesson(
+                        course_id=course.id,
+                        term_id=term.id,
+                        date=cursor,
+                        week_of_term=week_of_term_for(cursor, term),
+                        status="SCHEDULED",
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
+                    session.add(lesson)
+                    created += 1
+            cursor += timedelta(days=1)
+
+    session.commit()
+    flash(request, f"Created {created} lesson(s) for {course.name}.", "success")
+    return RedirectResponse(f"/courses/{course_id}/schedule", status_code=303)
+
+@router.get("/year/setup", response_class=HTMLResponse, name="schedule.year_setup")
+def year_setup(
+    request: Request,
+    year: int,
+    next: str = "",
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    existing = session.query(AcademicYear).filter_by(year=year).first()
     json_path = _instance_data_path(f"term_dates_{year}.json")
     parsed = None
     if os.path.exists(json_path):
@@ -250,112 +226,96 @@ def year_setup():
 
     return render_template(
         "schedule/year_setup.html",
-        year=year,
-        existing=existing,
-        parsed=parsed,
-        json_path=os.path.basename(json_path),
-        next_url=next_url,
+        {
+            "request": request,
+            "year": year,
+            "existing": existing,
+            "parsed": parsed,
+            "json_path": os.path.basename(json_path),
+            "next_url": next,
+            "current_user": current_user,
+        }
     )
 
-@schedule_bp.post("/year/scrape")
-@login_required
-def year_scrape():
-    """Run the scraper, normalise output, and stage a year JSON for preview."""
+@router.post("/year/scrape", name="schedule.year_scrape")
+def year_scrape(
+    request: Request,
+    year: int = Form(...),
+    next_url: str = Form(""),
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    data = None
     try:
-        year = int(request.form.get("year", ""))
-    except ValueError:
-        abort(400, "year is required")
-
-    next_url = request.form.get("next_url", "")
-
-    # Try importing a function; fall back to executing a script.
-    data: Optional[Dict[str, Any]] = None
-    try:
-        # reusable module version, prefer importing it:
-        # from app.utils.qld_term_dates_scraper import scrape_term_dates, SOURCE_URL
         data = scrape_term_dates(SOURCE_URL)
-        # raise ImportError  # force fallback if you don't have the module
     except Exception:
-        # Fallback: call a standalone script (project root or on PATH)
         candidate_paths = [
-            os.path.join(current_app.root_path, "qld_term_dates_scraper.py"),
-            os.path.join(current_app.root_path, "..", "qld_term_dates_scraper.py"),
+            os.path.join(settings.ROOT_PATH, "qld_term_dates_scraper.py"),
             "qld_term_dates_scraper.py",
         ]
         script_path = next((p for p in candidate_paths if os.path.exists(p)), None)
         if not script_path:
-            flash("Scraper script not found. Place qld_term_dates_scraper.py in your project root.", "danger")
-            return redirect(url_for("schedule.year_setup", year=year, next=next_url))
+            flash(request, "Scraper script not found.", "danger")
+            return RedirectResponse(f"/courses/year/setup?year={year}&next={next_url}", status_code=303)
         try:
             proc = subprocess.run([sys.executable, script_path], capture_output=True, text=True, check=True)
             data = json.loads(proc.stdout)
         except Exception as e:
-            current_app.logger.exception("Scrape failed")
-            flash(f"Scrape failed: {e}", "danger")
-            return redirect(url_for("schedule.year_setup", year=year, next=next_url))
+            flash(request, f"Scrape failed: {e}", "danger")
+            return RedirectResponse(f"/courses/year/setup?year={year}&next={next_url}", status_code=303)
 
     if not isinstance(data, dict):
-        flash("Unexpected scraper output.", "danger")
-        return redirect(url_for("schedule.year_setup", year=year, next=next_url))
+        flash(request, "Unexpected scraper output.", "danger")
+        return RedirectResponse(f"/courses/year/setup?year={year}&next={next_url}", status_code=303)
 
-    # Accept either {"years":[{year,terms...}], ...} or {"year":2025,"terms":[...],...}
     source = data.get("source")
     last_updated = data.get("last_updated")
-    raw_terms: List[Dict[str, Any]] = []
+    raw_terms = []
 
     if "years" in data:
         block = next((y for y in data["years"] if int(y.get("year", 0)) == year), None)
         if not block:
-            flash(f"Scraped data did not include {year}.", "warning")
-            return redirect(url_for("schedule.year_setup", year=year, next=next_url))
+            flash(request, f"Scraped data did not include {year}.", "warning")
+            return RedirectResponse(f"/courses/year/setup?year={year}&next={next_url}", status_code=303)
         raw_terms = block.get("terms", [])
-        # allow per-block metadata to override
         source = block.get("source") or source
         last_updated = block.get("last_updated") or last_updated
     elif "terms" in data:
         if data.get("year") and int(data["year"]) != year:
-            flash(f"Scraped payload was for {data['year']}, not {year}.", "warning")
-            return redirect(url_for("schedule.year_setup", year=year, next=next_url))
+            flash(request, f"Scraped payload was for {data['year']}, not {year}.", "warning")
+            return RedirectResponse(f"/courses/year/setup?year={year}&next={next_url}", status_code=303)
         raw_terms = data.get("terms", [])
     else:
-        flash("No 'terms' found in scraper output.", "danger")
-        return redirect(url_for("schedule.year_setup", year=year, next=next_url))
+        flash(request, "No 'terms' found in scraper output.", "danger")
+        return RedirectResponse(f"/courses/year/setup?year={year}&next={next_url}", status_code=303)
 
-    # 🔧 Normalise combined lines & missing dates (e.g., Term 1 & Term 2 on same line)
-    terms = _normalise_terms_for_year(raw_terms, year)
-
-    # Stage to instance/
+    ts = _normalise_terms_for_year(raw_terms, year)
     out_path = _instance_data_path(f"term_dates_{year}.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({
             "source": source,
             "last_updated": last_updated,
             "year": year,
-            "terms": terms,
+            "terms": ts,
         }, f, ensure_ascii=False, indent=2)
 
-    flash(f"Scraped and staged term dates for {year}. Review below.", "success")
-    return redirect(url_for("schedule.year_setup", year=year, next=next_url))
+    flash(request, f"Scraped and staged term dates for {year}.", "success")
+    return RedirectResponse(f"/courses/year/setup?year={year}&next={next_url}", status_code=303)
 
-@schedule_bp.post("/year/confirm")
-@login_required
-def year_confirm():
-    """Commit staged JSON to the DB, idempotently replacing terms, then follow `next`."""
-    try:
-        year = int(request.form.get("year", ""))
-    except ValueError:
-        abort(400, "year is required")
-
-    next_url = request.form.get("next_url", "")
+@router.post("/year/confirm", name="schedule.year_confirm")
+def year_confirm(
+    request: Request,
+    year: int = Form(...),
+    next_url: str = Form(""),
+    uploaded_json: str = Form(None, alias="__uploaded_json"),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
     json_path = _instance_data_path(f"term_dates_{year}.json")
-    payload: Optional[Dict[str, Any]] = None
+    payload = None
 
-    # (Optional) allow manual JSON upload via hidden field
-    uploaded = request.form.get("__uploaded_json")
-    if uploaded:
+    if uploaded_json:
         try:
-            payload = json.loads(uploaded)
-            # Save what the user uploaded, so a refresh still previews the same
+            payload = json.loads(uploaded_json)
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -363,13 +323,12 @@ def year_confirm():
 
     if not payload:
         if not os.path.exists(json_path):
-            flash("No staged JSON to confirm. Please run the scraper first.", "warning")
-            return redirect(url_for("schedule.year_setup", year=year, next=next_url))
+            flash(request, "No staged JSON to confirm.", "warning")
+            return RedirectResponse(f"/courses/year/setup?year={year}&next={next_url}", status_code=303)
         with open(json_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
 
-    # Upsert year & terms
-    ay = AcademicYear.query.filter_by(year=year).first()
+    ay = session.query(AcademicYear).filter_by(year=year).first()
     if not ay:
         ay = AcademicYear(year=year)
 
@@ -381,7 +340,6 @@ def year_confirm():
         except Exception:
             ay.last_updated = None
 
-    # Clear and replace terms
     ay.terms.clear()
     for t in payload.get("terms", []):
         sd = t.get("start_date")
@@ -396,44 +354,39 @@ def year_confirm():
         )
         ay.terms.append(term)
 
-    db.session.add(ay)
-    db.session.commit()
+    session.add(ay)
+    session.commit()
+    flash(request, f"Academic year {year} configured.", "success")
+    return RedirectResponse(next_url or f"/courses/year/setup?year={year}", status_code=303)
 
-    flash(f"Academic year {year} configured.", "success")
-    return redirect(_safe_next(next_url, "schedule.year_setup", year=year))
+@router.get("/{course_id}/schedule", response_class=HTMLResponse, name="schedule.course_schedule")
+def course_schedule(
+    course_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
-
-@schedule_bp.get('/<int:course_id>/schedule', endpoint='course_schedule')
-@login_required
-def course_schedule(course_id):
-    """
-    Read-only view of a course's schedule.
-    - Shows 'Configure Year' CTA if the academic year isn't set up yet.
-    - Lists upcoming lessons (next 10) and the full schedule.
-    """
-    course = Course.query.get_or_404(course_id)
-
-    # Pick the target academic year from the course if available, else current year.
     target_year = getattr(course, "year", None) or date.today().year
-
-    ay = AcademicYear.query.filter_by(year=target_year).first()
-    terms = []
+    ay = session.query(AcademicYear).filter_by(year=target_year).first()
+    ts = []
     if ay:
-        terms = (Term.query
+        ts = (session.query(Term)
                  .filter_by(academic_year_id=ay.id)
                  .order_by(Term.number.asc())
                  .all())
 
-    # Load lessons for this course; be defensive about optional fields.
     lesson_date_col = first_model_attribute(Lesson, ["date"])
     lesson_time_col = first_model_attribute(Lesson, ["start_time", "starts_at"])
     order_columns = [col for col in (lesson_date_col, lesson_time_col) if col is not None]
-    lessons_q = Lesson.query.filter_by(course_id=course.id)
+    lessons_q = session.query(Lesson).filter_by(course_id=course.id)
     if order_columns:
         lessons_q = lessons_q.order_by(*order_columns)
     lessons = lessons_q.all()
 
-    # Compute a simple "upcoming" list from today (if Lesson has a date field)
     today = date.today()
     upcoming = []
     for l in lessons:
@@ -444,10 +397,14 @@ def course_schedule(course_id):
 
     return render_template(
         'schedule/course_schedule.html',
-        course=course,
-        target_year=target_year,
-        ay=ay,
-        terms=terms,
-        lessons=lessons,
-        upcoming=upcoming,
+        {
+            "request": request,
+            "course": course,
+            "target_year": target_year,
+            "ay": ay,
+            "terms": ts,
+            "lessons": lessons,
+            "upcoming": upcoming,
+            "current_user": current_user,
+        }
     )

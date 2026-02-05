@@ -1,45 +1,43 @@
-from flask import Blueprint, render_template, jsonify, request, abort
-from flask_login import login_required, current_user
+from __future__ import annotations
+from fastapi import APIRouter, Depends, HTTPException, Request, Body
+from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy import func
-from app.extensions import db
+from sqlalchemy.orm import Session
+
+from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
 from app.models import Course, User, Behaviour, SeatingPosition
+from app.templating import render_template
 
-import logging
-log = logging.getLogger(__name__)
-
-
-seating_bp = Blueprint("seating", __name__, url_prefix="/courses")
-
+router = APIRouter(prefix="/courses", tags=["seating"])
 
 def _is_enrolled(course: Course, user: User) -> bool:
-    # course.students is a dynamic relationship
-    return course.students.filter(User.id == user.id).count() > 0
+    return any(u.id == user.id for u in course.students)
 
+def _can_manage(user: User | AnonymousUser) -> bool:
+    return getattr(user, "role", "") in {"admin", "issuer"}
 
-def _can_manage(course: Course) -> bool:
-    # Tighten to your role rules as needed
-    return getattr(current_user, "role", "") in {"admin", "issuer"}  # or your own check
+@router.get("/{course_id}/seating", response_class=HTMLResponse, name="seating.seating_view")
+def seating_view(
+    course_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if not _can_manage(current_user):
+        raise HTTPException(status_code=403, detail="Permission denied")
 
+    users = sorted(course.students, key=lambda s: (s.last_name.lower(), s.first_name.lower()))
 
-@seating_bp.route("/<int:course_id>/seating")
-@login_required
-def seating_view(course_id):
-    course = Course.query.get_or_404(course_id)
-    if not _can_manage(course):
-        abort(403)
-
-    # roster (Query because lazy="dynamic")
-    users = course.students.order_by(User.last_name, User.first_name).all()
-
-    # positions for this course
     pos_map = {
         p.user_id: p
-        for p in SeatingPosition.query.filter_by(course_id=course.id).all()
+        for p in session.query(SeatingPosition).filter_by(course_id=course.id).all()
     }
 
-    # behaviour totals per user for this course
     totals = dict(
-        db.session.query(Behaviour.user_id, func.coalesce(func.sum(Behaviour.delta), 0))
+        session.query(Behaviour.user_id, func.coalesce(func.sum(Behaviour.delta), 0))
         .filter(Behaviour.course_id == course.id)
         .group_by(Behaviour.user_id)
         .all()
@@ -47,87 +45,102 @@ def seating_view(course_id):
 
     return render_template(
         "courses/seating.html",
-        course=course,
-        users=users,
-        pos_map=pos_map,
-        totals=totals,
+        {
+            "request": request,
+            "course": course,
+            "users": users,
+            "pos_map": pos_map,
+            "totals": totals,
+            "current_user": current_user,
+        }
     )
 
+@router.get("/{course_id}/api/seating", name="seating.api_all_positions")
+def api_all_positions(
+    course_id: int,
+    session: Session = Depends(get_db),
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
-# -------- API: get/save positions --------
+    rows = session.query(SeatingPosition).filter_by(course_id=course_id).all()
+    return [{"user_id": r.user_id, "x": r.x, "y": r.y, "locked": r.locked} for r in rows]
 
-@seating_bp.get("/<int:course_id>/api/seating")
-@login_required
-def api_all_positions(course_id):
-    Course.query.get_or_404(course_id)
-    rows = SeatingPosition.query.filter_by(course_id=course_id).all()
-    return jsonify([{"user_id": r.user_id, "x": r.x, "y": r.y, "locked": r.locked} for r in rows])
+@router.post("/{course_id}/api/seating/{user_id}", name="seating.api_update_position")
+def api_update_position(
+    course_id: int,
+    user_id: int,
+    data: dict = Body(...),
+    session: Session = Depends(get_db),
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    course = session.get(Course, course_id)
+    user = session.get(User, user_id)
+    if not course or not user:
+        raise HTTPException(status_code=404, detail="Course or User not found")
 
+    if not _can_manage(current_user) or not _is_enrolled(course, user):
+        raise HTTPException(status_code=403, detail="Permission denied")
 
-@seating_bp.post("/<int:course_id>/api/seating/<int:user_id>")
-@seating_bp.post("/<int:course_id>/api/seating/<int:user_id>/")
-@login_required
-def api_update_position(course_id, user_id):
-    # Debug: confirm the route is being hit
-    log.debug("api_update_position hit: course=%s user=%s", course_id, user_id)
-
-    course = Course.query.get_or_404(course_id)
-    user = User.query.get_or_404(user_id)
-
-    # If you want a 403 instead of 404 when not enrolled:
-    if not _can_manage(course) or not _is_enrolled(course, user):
-        log.debug("Forbidden: user %s not allowed or not enrolled in course %s", user_id, course_id)
-        abort(403)
-
-    data = request.get_json(force=True) or {}
     x = float(data.get("x", 0))
     y = float(data.get("y", 0))
     locked = data.get("locked")
 
-    sp = SeatingPosition.query.filter_by(course_id=course_id, user_id=user_id).first()
+    sp = session.query(SeatingPosition).filter_by(course_id=course_id, user_id=user_id).first()
     if not sp:
         sp = SeatingPosition(course_id=course_id, user_id=user_id, x=x, y=y)
-        db.session.add(sp)
+        session.add(sp)
     else:
         if sp.locked and data.get("drag", False):
-            return jsonify({"ok": True, "ignored": "locked"})
+            return {"ok": True, "ignored": "locked"}
         sp.x, sp.y = x, y
 
     if locked is not None:
         sp.locked = bool(locked)
 
-    db.session.commit()
-    return jsonify({"ok": True})
+    session.commit()
+    return {"ok": True}
 
+@router.post("/{course_id}/api/seating/bulk_lock", name="seating.api_bulk_lock")
+def api_bulk_lock(
+    course_id: int,
+    data: dict = Body(...),
+    session: Session = Depends(get_db),
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if not _can_manage(current_user):
+        raise HTTPException(status_code=403, detail="Permission denied")
 
-@seating_bp.post("/<int:course_id>/api/seating/bulk_lock")
-@login_required
-def api_bulk_lock(course_id):
-    course = Course.query.get_or_404(course_id)
-    if not _can_manage(course):
-        abort(403)
-    data = request.get_json(force=True) or {}
     locked = bool(data.get("locked", True))
-    SeatingPosition.query.filter_by(course_id=course_id).update({"locked": locked})
-    db.session.commit()
-    return jsonify({"ok": True})
+    session.query(SeatingPosition).filter_by(course_id=course_id).update({"locked": locked})
+    session.commit()
+    return {"ok": True}
 
+@router.post("/{course_id}/api/behaviour/{user_id}/adjust", name="seating.api_behaviour_adjust")
+def api_behaviour_adjust(
+    course_id: int,
+    user_id: int,
+    data: dict = Body(...),
+    session: Session = Depends(get_db),
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    course = session.get(Course, course_id)
+    user = session.get(User, user_id)
+    if not course or not user:
+        raise HTTPException(status_code=404, detail="Course or User not found")
 
-# -------- API: +/– behaviour and total for this course --------
+    if not _can_manage(current_user) or not _is_enrolled(course, user):
+        raise HTTPException(status_code=403, detail="Permission denied")
 
-@seating_bp.post("/<int:course_id>/api/behaviour/<int:user_id>/adjust")
-@login_required
-def api_behaviour_adjust(course_id, user_id):
-    course = Course.query.get_or_404(course_id)
-    user = User.query.get_or_404(user_id)
-    if not _can_manage(course) or not _is_enrolled(course, user):
-        abort(403)
-
-    data = request.get_json(force=True) or {}
     delta = int(data.get("delta", 0))
     note = (data.get("note") or "").strip()
     if delta == 0:
-        return jsonify({"ok": False, "error": "delta required"}), 400
+        return JSONResponse({"ok": False, "error": "delta required"}, status_code=400)
 
     b = Behaviour(
         user_id=user_id,
@@ -137,14 +150,14 @@ def api_behaviour_adjust(course_id, user_id):
         created_by_id=current_user.id,
     )
     try:
-        db.session.add(b)
-        db.session.commit()
+        session.add(b)
+        session.commit()
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        session.rollback()
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-    total = db.session.query(func.coalesce(func.sum(Behaviour.delta), 0))\
+    total = session.query(func.coalesce(func.sum(Behaviour.delta), 0))\
         .filter(Behaviour.user_id == user_id, Behaviour.course_id == course_id)\
         .scalar() or 0
 
-    return jsonify({"ok": True, "total": int(total)})
+    return {"ok": True, "total": int(total)}

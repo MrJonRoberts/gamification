@@ -1,20 +1,23 @@
 from __future__ import annotations
-import os, io, hashlib
+import os, io, hashlib, re
 from uuid import uuid4
 from typing import Iterable, Optional
 
-from flask import current_app
-from werkzeug.utils import secure_filename
 from PIL import Image, UnidentifiedImageError
+from app.config import settings
 
 DEFAULT_SIZE = 50
+
+def secure_filename(filename: str) -> str:
+    filename = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+    return filename
 
 def allowed_image(filename: str) -> bool:
     """Check extension against Config.ALLOWED_IMAGE_EXTS."""
     if not filename or "." not in filename:
         return False
     ext = filename.rsplit(".", 1)[1].lower()
-    exts = current_app.config.get("ALLOWED_IMAGE_EXTS", {"png", "jpg", "jpeg", "webp"})
+    exts = settings.ALLOWED_IMAGE_EXTS
     return ext in exts
 
 def open_image(file_or_stream) -> Image.Image:
@@ -50,7 +53,7 @@ def save_png(pil: Image.Image, subfolder: str, name_key: str) -> str:
     digest = hashlib.sha1(buf.getvalue()).hexdigest()[:8]
     filename = f"{base}-{digest}.png"
 
-    root = current_app.root_path
+    root = settings.ROOT_PATH
     save_dir = os.path.join(root, "static", subfolder)
     _ensure_dir(save_dir)
     fp = os.path.join(save_dir, filename)
@@ -65,7 +68,7 @@ def remove_web_path(web_path: Optional[str]) -> None:
     if not web_path:
         return
     try:
-        fp = os.path.join(current_app.root_path, web_path.lstrip("/"))
+        fp = os.path.join(settings.ROOT_PATH, web_path.lstrip("/"))
         if os.path.exists(fp):
             os.remove(fp)
     except OSError:
@@ -81,7 +84,7 @@ def _pick_avatar_for_key(key: str, subfolder: str, choices: Iterable[str]) -> Im
     Deterministically pick an avatar from /static/<subfolder>/<choice>.
     Falls back to a solid placeholder if no files exist or errors occur.
     """
-    root = current_app.root_path
+    root = settings.ROOT_PATH
     files = [os.path.join(root, "static", subfolder, c) for c in choices]
     files = [fp for fp in files if os.path.exists(fp)]
     if not files:

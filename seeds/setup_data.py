@@ -53,11 +53,12 @@ TERM_DATE_FIXTURES: List[Dict] = [
 
 def seed_users() -> Dict[str, User]:
     def build_user(**kwargs: str) -> User:
+        from app.security import hash_password
         password = kwargs.pop("password")
+        kwargs["password_hash"] = hash_password(password)
         user, _ = get_or_create(User, email=kwargs["email"], defaults=kwargs)
         for key, value in kwargs.items():
             setattr(user, key, value)
-        user.set_password(password)
         return user
 
     admin = build_user(

@@ -2,12 +2,33 @@
 {% block content %}
 <h1 class="h4">Adjust Points</h1>
 <form method="post">
-  {{ form.csrf_token }}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="row g-3">
-    <div class="col-md-6">{{ form.user_id.label }} {{ form.user_id(class="form-select") }}</div>
-    <div class="col-md-3">{{ form.delta.label }} {{ form.delta(class="form-control", value=0) }}</div>
-    <div class="col-md-3">{{ form.course_id.label }} {{ form.course_id(class="form-select") }}</div>
-    <div class="col-md-12">{{ form.reason.label }} {{ form.reason(class="form-control") }}</div>
+    <div class="col-md-6">
+      <label class="form-label" for="user_id">Student</label>
+      <select class="form-select" id="user_id" name="user_id">
+        {% for u in students %}
+          <option value="{{ u.id }}">{{ u.last_name }}, {{ u.first_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="delta">Points (+/-)</label>
+      <input class="form-control" id="delta" name="delta" type="number" value="0" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="course_id">Course (optional)</label>
+      <select class="form-select" id="course_id" name="course_id">
+        <option value="0">—</option>
+        {% for c in courses %}
+          <option value="{{ c.id }}">{{ c.name }} {{ c.semester }}{{ c.year }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-12">
+      <label class="form-label" for="reason">Reason</label>
+      <input class="form-control" id="reason" name="reason" type="text" required>
+    </div>
   </div>
   <div class="mt-3"><button class="btn btn-success">Apply</button></div>
 </form>
