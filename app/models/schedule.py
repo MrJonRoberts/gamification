@@ -1,4 +1,3 @@
-from datetime import time
 from app.extensions import db
 from sqlalchemy.orm import synonym
 
@@ -34,7 +33,7 @@ class Term(db.Model):
 
 
 
-class LessonStatus(db.Enum):
+class LessonStatus:
     SCHEDULED = "SCHEDULED"
     NO_CLASS_TODAY = "NO_CLASS_TODAY"
 
@@ -64,7 +63,15 @@ class Lesson(db.Model):
     term_id = db.Column(db.Integer, db.ForeignKey("terms.id"), nullable=False)
     date = db.Column(db.Date, nullable=False)
     week_of_term = db.Column(db.Integer, nullable=False)
-    status = db.Column(db.Enum("SCHEDULED", "NO_CLASS_TODAY", name="lesson_status"), nullable=False, default="SCHEDULED")
+    status = db.Column(
+        db.Enum(
+            LessonStatus.SCHEDULED,
+            LessonStatus.NO_CLASS_TODAY,
+            name="lesson_status",
+        ),
+        nullable=False,
+        default=LessonStatus.SCHEDULED,
+    )
     start_time = db.Column(db.Time)
     end_time = db.Column(db.Time)
     notes = db.Column(db.Text)
