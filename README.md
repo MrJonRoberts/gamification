@@ -1,6 +1,15 @@
 # Gamification
 
-Badge and awards for a class.
+A classroom gamification application providing badges, awards, and point tracking for students.
+
+## Architecture
+
+This application is built with:
+- **FastAPI**: Modern, high-performance web framework for Python.
+- **SQLAlchemy**: Powerful SQL toolkit and Object-Relational Mapper (ORM).
+- **Jinja2**: Server-side templating engine for rendering HTML.
+- **JWT Authentication**: Modern and robust authentication using JSON Web Tokens stored in HttpOnly cookies.
+- **Bootstrap 5**: Responsive CSS framework for the frontend.
 
 ## Setup
 
@@ -28,7 +37,14 @@ Start the FastAPI app with Uvicorn:
 python run.py
 ```
 
-By default, the server runs on `http://localhost:8000`.
+By default, the server runs on `http://localhost:5000`.
+
+## Authentication
+
+The application uses a custom JWT-based authentication system.
+- Tokens are issued upon login and stored in an `access_token` HttpOnly cookie.
+- The `get_current_user` dependency validates the token and retrieves the user from the database.
+- Permissions are handled via `require_user` and `require_role` dependencies.
 
 ## (Optional) Seed the database
 

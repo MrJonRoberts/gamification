@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from app.extensions import db
 
 class SeatingPosition(db.Model):
@@ -9,7 +9,7 @@ class SeatingPosition(db.Model):
     x = db.Column(db.Float, default=0)
     y = db.Column(db.Float, default=0)
     locked = db.Column(db.Boolean, default=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         db.UniqueConstraint("course_id", "user_id", name="uq_seating_course_user"),

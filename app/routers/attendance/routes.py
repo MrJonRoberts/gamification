@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Body
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from sqlalchemy import func
@@ -255,7 +255,7 @@ def api_set_attendance(
         session.add(rec)
     else:
         rec.status = status
-    rec.marked_at = datetime.utcnow()
+    rec.marked_at = datetime.now(timezone.utc)
     rec.marked_by_user_id = getattr(current_user, "id", None)
     session.commit()
     return {"ok": True}
@@ -297,7 +297,7 @@ def api_bulk_set_attendance(
     ).all()
     existing = {(a.student_id, a.lesson_id): a for a in existing_rows}
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     inserted = 0
     updated = 0
     for lid in valid_lids:

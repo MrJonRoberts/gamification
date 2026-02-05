@@ -69,6 +69,9 @@ def list_students(
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
+    """
+    Lists all students and their award progress summaries.
+    """
     students = (
         session.query(User)
         .filter_by(role="student")
@@ -156,6 +159,9 @@ def quick_enroll(
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
+    """
+    Enrolls a student in a course.
+    """
     student = session.get(User, user_id)
     course = session.get(Course, course_id)
     if not student or not course:
@@ -183,6 +189,9 @@ def create_student_form(
     request: Request,
     current_user: User | AnonymousUser = Depends(require_user),
 ):
+    """
+    Renders the form to create a new student (single or bulk).
+    """
     return render_template("students/form.html", {"request": request, "current_user": current_user})
 
 @router.post("/create", name="students.create_student_post")
@@ -201,6 +210,9 @@ async def create_student_action(
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
+    """
+    Handles student creation, either single or via bulk upload.
+    """
     if action == "bulk":
         if not file or not file.filename:
             flash(request, "Please upload a CSV or XLSX file.", "warning")

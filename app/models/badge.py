@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from app.extensions import db
 
 class Badge(db.Model):
@@ -8,7 +8,7 @@ class Badge(db.Model):
     description = db.Column(db.Text, nullable=True)
     icon = db.Column(db.String(255), nullable=True)
     points = db.Column(db.Integer, default=0, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
 
     __table_args__ = (
@@ -23,7 +23,7 @@ class BadgeGrant(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     badge_id = db.Column(db.Integer, db.ForeignKey("badges.id"), nullable=False)
     issued_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    issued_at = db.Column(db.DateTime, default=datetime.utcnow)
+    issued_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = db.relationship("User", foreign_keys=[user_id], backref="badge_grants")
     badge = db.relationship("Badge", backref="grants")

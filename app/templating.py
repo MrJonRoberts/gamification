@@ -8,6 +8,10 @@ def _csrf_token() -> str:
     return ""
 
 def render_template(template_name: str, context: dict):
+    """
+    Renders a Jinja2 template with a set of standard context variables,
+    such as url_for, flash messages, and app configuration.
+    """
     request = context.get("request")
 
     # Standard context variables
