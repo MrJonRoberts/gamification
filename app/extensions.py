@@ -46,14 +46,21 @@ class Database:
     DateTime = DateTime
     Enum = Enum
     ForeignKey = ForeignKey
-    Table = Table
+
+    @staticmethod
+    def Table(name, *args, **kwargs):
+        from sqlalchemy import MetaData, Table
+        if not any(isinstance(arg, MetaData) for arg in args):
+            return Table(name, Base.metadata, *args, **kwargs)
+        return Table(name, *args, **kwargs)
+
     UniqueConstraint = UniqueConstraint
     CheckConstraint = CheckConstraint
     Index = Index
-    relationship = relationship
-    backref = backref
+    relationship = staticmethod(relationship)
+    backref = staticmethod(backref)
     func = func
-    select = select
+    select = staticmethod(select)
 
     def __init__(self, database_url: str):
         self.engine = create_engine(database_url, future=True)

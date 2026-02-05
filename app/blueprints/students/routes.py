@@ -1,37 +1,27 @@
-# app/blueprints/students/routes.py
-
 from __future__ import annotations
-from sqlalchemy.orm import joinedload
 import io
 import os
 import re
 import zipfile
+from typing import Optional
 
 import pandas as pd
-from flask import (
-    Blueprint,
-    Response,
-    current_app,
-    flash,
-    redirect,
-    render_template,
-    request,
-    url_for,
-)
-from flask_login import current_user, login_required
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 
-from ...extensions import db
+from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
+from app.extensions import db
 from app.models import (
     User,
     Course,
     Award,
-    AwardBadge,
     BadgeGrant,
-    PointLedger,
-    Behaviour
+    Behaviour,
+    PointLedger
 )
-from ...services.images import (
+from app.services.images import (
     allowed_image,
     open_image,
     square,
@@ -39,28 +29,20 @@ from ...services.images import (
     user_fallback,
     remove_web_path,
 )
-from .forms import StudentForm  # adjust if your form lives elsewhere
+from app.templating import render_template
+from app.utils import flash
 
-students_bp = Blueprint("students", __name__)
+router = APIRouter(prefix="/students", tags=["students"])
 
-# -----------------------------
-# Helpers (tiny, non-dup)
-# -----------------------------
-def _has_role(*roles: str) -> bool:
-    return current_user.is_authenticated and getattr(current_user, "role", "") in roles
+def _has_role(user: User | AnonymousUser, *roles: str) -> bool:
+    return getattr(user, "is_authenticated", False) and getattr(user, "role", "") in roles
 
-
-def _find_course_from_text(text: str | None) -> Course | None:
-    """
-    Accepts:
-      - numeric ID, e.g., "12"
-      - "Name S1 2025" or "Name - S1 2025" (case-insensitive)
-    """
+def _find_course_from_text(session: Session, text: str | None) -> Course | None:
     if not text:
         return None
     t = str(text).strip()
     if t.isdigit():
-        return Course.query.get(int(t))
+        return session.get(Course, int(t))
     m = re.match(
         r"^(?P<name>.+?)\s*(?:-|–)?\s*(?P<sem>S[12])\s*(?P<year>\d{4})$",
         t,
@@ -71,50 +53,47 @@ def _find_course_from_text(text: str | None) -> Course | None:
         sem = m.group("sem").upper()
         year = int(m.group("year"))
         return (
-            Course.query.filter(
+            session.query(Course)
+            .filter(
                 func.lower(Course.name) == name.lower(),
                 Course.semester == sem,
                 Course.year == year,
             )
-            .limit(1)
             .first()
         )
     return None
 
-
-# -----------------------------
-# List + Awards summary
-# -----------------------------
-@students_bp.route("/")
-@login_required
-def list_students():
+@router.get("/", response_class=HTMLResponse, name="students.list_students")
+def list_students(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
     students = (
-        User.query.filter_by(role="student")
+        session.query(User)
+        .filter_by(role="student")
         .order_by(User.last_name, User.first_name)
         .all()
     )
-    courses = Course.query.order_by(Course.year.desc(), Course.semester, Course.name).all()
+    courses = session.query(Course).order_by(Course.year.desc(), Course.semester, Course.name).all()
 
-    # Build award requirements once: award_id -> set(badge_id)
-    awards = Award.query.order_by(Award.name).all()
+    awards = session.query(Award).order_by(Award.name).all()
     award_requirements = {
         a.id: {ab.badge_id for ab in a.award_badges} for a in awards
     }
     awards_total = len(awards)
 
-    # All badge grants for these students in one go
     student_ids = [s.id for s in students]
     earned_by_user: dict[int, set[int]] = {sid: set() for sid in student_ids}
     if student_ids:
         rows = (
-            db.session.query(BadgeGrant.user_id, BadgeGrant.badge_id)
+            session.query(BadgeGrant.user_id, BadgeGrant.badge_id)
             .filter(BadgeGrant.user_id.in_(student_ids))
             .all()
         )
         for uid, bid in rows:
             earned_by_user.setdefault(uid, set()).add(bid)
 
-    # Compute a compact summary per student
     award_summaries: dict[int, dict] = {}
     for s in students:
         earned = earned_by_user.get(s.id, set())
@@ -145,12 +124,11 @@ def list_students():
             "in_progress": in_progress,
             "percent": percent,
         }
-        # NEW: behaviour totals per student
-    student_ids = [s.id for s in students]
+
     behaviour_totals = {sid: 0 for sid in student_ids}
     if student_ids:
         rows = (
-            db.session.query(Behaviour.user_id, func.coalesce(func.sum(Behaviour.delta), 0))
+            session.query(Behaviour.user_id, func.coalesce(func.sum(Behaviour.delta), 0))
             .filter(Behaviour.user_id.in_(student_ids))
             .group_by(Behaviour.user_id)
             .all()
@@ -160,137 +138,147 @@ def list_students():
 
     return render_template(
         "students/list.html",
-        students=students,
-        courses=courses,
-        award_summaries=award_summaries,
-        behaviour_totals=behaviour_totals,  # <-- pass to template
+        {
+            "request": request,
+            "students": students,
+            "courses": courses,
+            "award_summaries": award_summaries,
+            "behaviour_totals": behaviour_totals,
+            "current_user": current_user,
+        },
     )
 
-
-
-# -----------------------------
-# Quick enrol into a course
-# -----------------------------
-@students_bp.post("/quick_enroll")
-@login_required
-def quick_enroll():
-    user_id = request.form.get("user_id", type=int)
-    course_id = request.form.get("course_id", type=int)
-    if not user_id or not course_id:
-        flash("Please select a student and a course.", "warning")
-        return redirect(url_for("students.list_students"))
-
-    student = User.query.get_or_404(user_id)
-    course = Course.query.get_or_404(course_id)
+@router.post("/quick_enroll", name="students.quick_enroll")
+def quick_enroll(
+    request: Request,
+    user_id: int = Form(...),
+    course_id: int = Form(...),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    student = session.get(User, user_id)
+    course = session.get(Course, course_id)
+    if not student or not course:
+        flash(request, "Invalid student or course.", "warning")
+        return RedirectResponse("/students/", status_code=303)
 
     if student not in course.students:
         course.students.append(student)
-        db.session.commit()
+        session.commit()
         flash(
+            request,
             f"Enrolled {student.first_name} {student.last_name} in {course.name} {course.semester}{course.year}.",
             "success",
         )
     else:
         flash(
+            request,
             f"{student.first_name} {student.last_name} is already enrolled in {course.name} {course.semester}{course.year}.",
             "info",
         )
-    return redirect(url_for("students.list_students"))
+    return RedirectResponse("/students/", status_code=303)
 
+@router.get("/create", response_class=HTMLResponse, name="students.create_student")
+def create_student_form(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    return render_template("students/form.html", {"request": request, "current_user": current_user})
 
-# -----------------------------
-# Create (single + bulk)
-# -----------------------------
-@students_bp.route("/create", methods=["GET", "POST"])
-@login_required
-def create_student():
-    # ----- Bulk branch -----
-    if request.method == "POST" and request.form.get("action") == "bulk":
-        file = request.files.get("file")
-        images_zip = request.files.get("images_zip")  # optional
+@router.post("/create", name="students.create_student_post")
+async def create_student_action(
+    request: Request,
+    action: str = Form(None),
+    # Bulk fields
+    file: UploadFile = File(None),
+    images_zip: UploadFile = File(None),
+    # Single fields
+    student_code: str = Form(None),
+    email: str = Form(None),
+    first_name: str = Form(None),
+    last_name: str = Form(None),
+    image: UploadFile = File(None),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if action == "bulk":
+        if not file or not file.filename:
+            flash(request, "Please upload a CSV or XLSX file.", "warning")
+            return RedirectResponse("/students/create#bulk", status_code=303)
 
-        if not file or file.filename == "":
-            flash("Please upload a CSV or XLSX file.", "warning")
-            return redirect(url_for("students.create_student", _anchor="bulk"))
-
-        # Load DataFrame
         try:
+            contents = await file.read()
             fname = file.filename.lower()
             if fname.endswith(".csv"):
-                df = pd.read_csv(file)
+                df = pd.read_csv(io.BytesIO(contents))
             elif fname.endswith((".xlsx", ".xls")):
-                df = pd.read_excel(file)
+                df = pd.read_excel(io.BytesIO(contents))
             else:
-                flash("Unsupported file type. Please upload .csv or .xlsx", "danger")
-                return redirect(url_for("students.create_student", _anchor="bulk"))
+                flash(request, "Unsupported file type. Please upload .csv or .xlsx", "danger")
+                return RedirectResponse("/students/create#bulk", status_code=303)
         except Exception as e:
-            flash(f"Could not read file: {e}", "danger")
-            return redirect(url_for("students.create_student", _anchor="bulk"))
+            flash(request, f"Could not read file: {e}", "danger")
+            return RedirectResponse("/students/create#bulk", status_code=303)
 
-        # Normalize/validate columns
         df.columns = [c.strip().lower() for c in df.columns]
         required = {"email", "first_name", "last_name"}
         missing = required - set(df.columns)
         if missing:
-            flash(f"Missing required columns: {', '.join(sorted(missing))}", "danger")
-            return redirect(url_for("students.create_student", _anchor="bulk"))
+            flash(request, f"Missing required columns: {', '.join(sorted(missing))}", "danger")
+            return RedirectResponse("/students/create#bulk", status_code=303)
 
         has_code = "student_code" in df.columns
         has_course = "course" in df.columns
         has_image = "image_name" in df.columns
 
-        # Optional images ZIP → build basename index
         icon_map: dict[str, str] = {}
         img_zip_bytes: bytes | None = None
-        if images_zip and images_zip.filename.lower().endswith(".zip"):
+        if images_zip and images_zip.filename and images_zip.filename.lower().endswith(".zip"):
             try:
-                img_zip_bytes = images_zip.read()
+                img_zip_bytes = await images_zip.read()
                 with zipfile.ZipFile(io.BytesIO(img_zip_bytes)) as zf:
                     for n in zf.namelist():
                         base = os.path.basename(n)
                         if base and allowed_image(base):
                             icon_map[base.lower()] = n
             except Exception as e:
-                flash(f"Could not read images ZIP: {e}", "danger")
-                return redirect(url_for("students.create_student", _anchor="bulk"))
+                flash(request, f"Could not read images ZIP: {e}", "danger")
+                return RedirectResponse("/students/create#bulk", status_code=303)
 
         created = enrolled = skipped = course_not_found = 0
         saved_files: list[str] = []
 
         try:
             for _, row in df.iterrows():
-                email = str(row.get("email", "")).strip().lower()
-                first = str(row.get("first_name", "")).strip()
-                last = str(row.get("last_name", "")).strip()
-                code = (
-                    (str(row.get("student_code", "")).strip() or None) if has_code else None
-                )
+                u_email = str(row.get("email", "")).strip().lower()
+                u_first = str(row.get("first_name", "")).strip()
+                u_last = str(row.get("last_name", "")).strip()
+                u_code = (str(row.get("student_code", "")).strip() or None) if has_code else None
                 course_text = str(row.get("course", "")).strip() if has_course else ""
                 image_name = str(row.get("image_name", "")).strip() if has_image else ""
 
-                if not (email and first and last):
+                if not (u_email and u_first and u_last):
                     skipped += 1
                     continue
 
-                u = User.query.filter_by(email=email).first()
+                u = session.query(User).filter_by(email=u_email).first()
                 if not u:
                     u = User(
-                        student_code=code,
-                        email=email,
-                        first_name=first,
-                        last_name=last,
+                        student_code=u_code,
+                        email=u_email,
+                        first_name=u_first,
+                        last_name=u_last,
                         role="student",
                         registered_method="bulk",
                     )
                     u.set_password("ChangeMe123!")
-                    db.session.add(u)
-                    db.session.flush()
+                    session.add(u)
+                    session.flush()
                     created += 1
                 else:
-                    if code and not u.student_code:
-                        u.student_code = code
+                    if u_code and not u.student_code:
+                        u.student_code = u_code
 
-                # Avatar: prefer image from ZIP if present; else deterministic
                 pil = None
                 if image_name and img_zip_bytes:
                     try:
@@ -302,16 +290,16 @@ def create_student():
                     except Exception:
                         pil = None
                 if pil is None:
-                    pil = user_fallback(email or f"{first}-{last}")
+                    pil = user_fallback(u_email or f"{u_first}-{u_last}")
 
                 avatar_path = save_png(
-                    square(pil), "avatars", email or code or f"{first}-{last}"
+                    square(pil), "avatars", u_email or u_code or f"{u_first}-{u_last}"
                 )
                 saved_files.append(avatar_path)
                 u.avatar = avatar_path
 
                 if course_text:
-                    course = _find_course_from_text(course_text)
+                    course = _find_course_from_text(session, course_text)
                     if course:
                         if u not in course.students:
                             course.students.append(u)
@@ -319,44 +307,47 @@ def create_student():
                     else:
                         course_not_found += 1
 
-            db.session.commit()
+            session.commit()
             msg = f"Bulk upload complete: {created} created, {enrolled} enrolments, {skipped} skipped"
             if course_not_found:
                 msg += f", {course_not_found} unknown course"
-            flash(msg + ".", "success")
-            return redirect(url_for("students.list_students"))
+            flash(request, msg + ".", "success")
+            return RedirectResponse("/students/", status_code=303)
 
         except Exception as e:
-            db.session.rollback()
+            session.rollback()
             for web_path in saved_files:
                 remove_web_path(web_path)
-            flash(f"Bulk upload failed. No changes were saved. Details: {e}", "danger")
-            return redirect(url_for("students.create_student", _anchor="bulk"))
+            flash(request, f"Bulk upload failed. No changes were saved. Details: {e}", "danger")
+            return RedirectResponse("/students/create#bulk", status_code=303)
 
-    # ----- Single-create branch -----
-    form = StudentForm()
-    if form.validate_on_submit():
+    else:
+        # Single create
+        if not email or not first_name or not last_name:
+            flash(request, "Email, First Name, and Last Name are required.", "danger")
+            return render_template("students/form.html", {"request": request, "current_user": current_user})
+
         u = User(
             role="student",
-            student_code=(form.student_code.data or "").strip() or None,
-            email=(form.email.data or "").lower().strip(),
-            first_name=(form.first_name.data or "").strip(),
-            last_name=(form.last_name.data or "").strip(),
+            student_code=(student_code or "").strip() or None,
+            email=(email or "").lower().strip(),
+            first_name=(first_name or "").strip(),
+            last_name=(last_name or "").strip(),
             registered_method="site",
         )
         u.set_password("ChangeMe123!")
 
-        # Optional photo upload → else deterministic avatar
         pil = None
-        file = request.files.get("image")
-        if file and getattr(file, "filename", ""):
-            if not allowed_image(file.filename):
-                flash("Photo must be PNG/JPG/JPEG/WEBP.", "danger")
-                return render_template("students/form.html", form=form)
+        if image and image.filename:
+            if not allowed_image(image.filename):
+                flash(request, "Photo must be PNG/JPG/JPEG/WEBP.", "danger")
+                return render_template("students/form.html", {"request": request, "current_user": current_user})
             try:
-                pil = open_image(file.stream)
+                contents = await image.read()
+                pil = open_image(io.BytesIO(contents))
             except Exception:
                 pil = None
+
         if pil is None:
             pil = user_fallback(u.email or f"{u.first_name}-{u.last_name}")
 
@@ -366,68 +357,75 @@ def create_student():
             u.email or u.student_code or f"{u.first_name}-{u.last_name}",
         )
 
-        db.session.add(u)
-        db.session.commit()
-        flash("Student created.", "success")
-        return redirect(url_for("students.list_students"))
+        session.add(u)
+        session.commit()
+        flash(request, "Student created.", "success")
+        return RedirectResponse("/students/", status_code=303)
 
-    return render_template("students/form.html", form=form)
+@router.get("/{user_id}/edit", response_class=HTMLResponse, name="students.edit_student")
+def edit_student_form(
+    user_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if not _has_role(current_user, "admin"):
+        flash(request, "Admin access required.", "danger")
+        return RedirectResponse("/students/", status_code=303)
 
+    student = session.get(User, user_id)
+    if not student or student.role != "student":
+        flash(request, "Not a student record.", "warning")
+        return RedirectResponse("/students/", status_code=303)
 
-# -----------------------------
-# Edit (admin only)
-# -----------------------------
-@students_bp.route("/<int:user_id>/edit", methods=["GET", "POST"])
-@login_required
-def edit_student(user_id: int):
-    if not _has_role("admin"):
-        flash("Admin access required.", "danger")
-        return redirect(url_for("students.list_students"))
+    return render_template("students/edit.html", {"request": request, "student": student, "current_user": current_user})
 
-    student = User.query.get_or_404(user_id)
-    if student.role != "student":
-        flash("Not a student record.", "warning")
-        return redirect(url_for("students.list_students"))
+@router.post("/{user_id}/edit", name="students.edit_student_post")
+async def edit_student_action(
+    user_id: int,
+    request: Request,
+    email: str = Form(...),
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    student_code: str = Form(None),
+    image: UploadFile = File(None),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    if not _has_role(current_user, "admin"):
+        flash(request, "Admin access required.", "danger")
+        return RedirectResponse("/students/", status_code=303)
 
-    form = StudentForm(obj=student)
+    student = session.get(User, user_id)
+    if not student or student.role != "student":
+        flash(request, "Not a student record.", "warning")
+        return RedirectResponse("/students/", status_code=303)
 
-    if form.validate_on_submit():
-        # Email uniqueness
-        new_email = (form.email.data or "").strip().lower()
-        clash = db.session.execute(
-            db.select(User.id).where(User.email == new_email, User.id != student.id)
-        ).first()
-        if clash:
-            flash("Email is already used by another user.", "warning")
-            return render_template("students/edit.html", form=form, student=student)
+    new_email = email.strip().lower()
+    clash = session.query(User).filter(User.email == new_email, User.id != student.id).first()
+    if clash:
+        flash(request, "Email is already used by another user.", "warning")
+        return render_template("students/edit.html", {"request": request, "student": student, "current_user": current_user})
 
-        # Student code uniqueness
-        new_code = (form.student_code.data or "").strip() or None
-        if new_code:
-            code_clash = db.session.execute(
-                db.select(User.id).where(User.student_code == new_code, User.id != student.id)
-            ).first()
-            if code_clash:
-                flash("Student code is already used by another user.", "warning")
-                return render_template("students/edit.html", form=form, student=student)
+    new_code = (student_code or "").strip() or None
+    if new_code:
+        code_clash = session.query(User).filter(User.student_code == new_code, User.id != student.id).first()
+        if code_clash:
+            flash(request, "Student code is already used by another user.", "warning")
+            return render_template("students/edit.html", {"request": request, "student": student, "current_user": current_user})
 
-        student.email = new_email
-        student.student_code = new_code
-        student.first_name = (form.first_name.data or "").strip()
-        student.last_name = (form.last_name.data or "").strip()
+    student.email = new_email
+    student.student_code = new_code
+    student.first_name = first_name.strip()
+    student.last_name = last_name.strip()
 
-        # Optional avatar replacement
-        file = request.files.get("image")
-        if file and getattr(file, "filename", ""):
-            if not allowed_image(file.filename):
-                flash("Photo must be PNG/JPG/JPEG/WEBP.", "danger")
-                return render_template("students/edit.html", form=form, student=student)
-            try:
-                pil = open_image(file.stream)
-            except Exception:
-                flash("Uploaded image is not a valid picture.", "danger")
-                return render_template("students/edit.html", form=form, student=student)
-
+    if image and image.filename:
+        if not allowed_image(image.filename):
+            flash(request, "Photo must be PNG/JPG/JPEG/WEBP.", "danger")
+            return render_template("students/edit.html", {"request": request, "student": student, "current_user": current_user})
+        try:
+            contents = await image.read()
+            pil = open_image(io.BytesIO(contents))
             new_avatar = save_png(
                 square(pil),
                 "avatars",
@@ -437,41 +435,37 @@ def edit_student(user_id: int):
             student.avatar = new_avatar
             if old and old != new_avatar:
                 remove_web_path(old)
+        except Exception:
+            flash(request, "Uploaded image is not a valid picture.", "danger")
+            return render_template("students/edit.html", {"request": request, "student": student, "current_user": current_user})
 
-        try:
-            db.session.commit()
-            flash("Student updated.", "success")
-            return redirect(url_for("students.list_students"))
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.exception("Failed to update student: %s", e)
-            flash("Could not update student due to a server error.", "danger")
+    session.commit()
+    flash(request, "Student updated.", "success")
+    return RedirectResponse("/students/", status_code=303)
 
-    return render_template("students/edit.html", form=form, student=student)
+@router.get("/{user_id}", response_class=HTMLResponse, name="students.detail")
+def detail(
+    user_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    student = session.get(User, user_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
 
-
-# -----------------------------
-# Detail + Awards progress pages
-# -----------------------------
-@students_bp.route("/<int:user_id>")
-@login_required
-def detail(user_id: int):
-    student = User.query.get_or_404(user_id)
-
-    # Total points for the student
     total_points = (
-        db.session.query(func.coalesce(func.sum(PointLedger.delta), 0))
+        session.query(func.coalesce(func.sum(PointLedger.delta), 0))
         .filter(PointLedger.user_id == user_id)
         .scalar()
         or 0
     )
 
-    # Eager-load related badge (and issuer if you have that relationship)
     grants = (
-        db.session.query(BadgeGrant)
+        session.query(BadgeGrant)
         .options(
             joinedload(BadgeGrant.badge),
-            joinedload(BadgeGrant.issued_by)  # ← remove this line if you don't have `issued_by` relationship
+            joinedload(BadgeGrant.issued_by)
         )
         .filter(BadgeGrant.user_id == user_id)
         .order_by(BadgeGrant.issued_at.desc(), BadgeGrant.id.desc())
@@ -481,29 +475,35 @@ def detail(user_id: int):
 
     return render_template(
         "students/detail.html",
-        student=student,
-        total_points=total_points,
-        grants=grants,
+        {
+            "request": request,
+            "student": student,
+            "total_points": total_points,
+            "grants": grants,
+            "current_user": current_user,
+        },
     )
 
-@students_bp.route("/<int:user_id>/awards")
-@login_required
-def awards_progress(user_id: int):
-    student = User.query.get_or_404(user_id)
+@router.get("/{user_id}/awards", response_class=HTMLResponse, name="students.awards_progress")
+def awards_progress(
+    user_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    student = session.get(User, user_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
 
-    # Load all awards with required badges
-    awards = Award.query.order_by(Award.name).all()
-    req_map = {a.id: [ab.badge for ab in a.award_badges] for a in awards}
+    awards = session.query(Award).order_by(Award.name).all()
 
-    # All earned badges for student with dates
     earned_dates = dict(
-        db.session.query(BadgeGrant.badge_id, func.min(BadgeGrant.issued_at))
+        session.query(BadgeGrant.badge_id, func.min(BadgeGrant.issued_at))
         .filter(BadgeGrant.user_id == user_id)
         .group_by(BadgeGrant.badge_id)
         .all()
     )
 
-    # Build view model
     rows = []
     for a in awards:
         badges = []
@@ -516,15 +516,18 @@ def awards_progress(user_id: int):
                 complete = False
         rows.append({"award": a, "badges": badges, "complete": complete})
 
-    return render_template("students/awards.html", student=student, rows=rows)
+    return render_template(
+        "students/awards.html",
+        {
+            "request": request,
+            "student": student,
+            "rows": rows,
+            "current_user": current_user,
+        },
+    )
 
-
-# -----------------------------
-# Bulk CSV template
-# -----------------------------
-@students_bp.route("/bulk_template.csv")
-@login_required
-def bulk_template():
+@router.get("/bulk_template.csv", name="students.bulk_template")
+def bulk_template(current_user: User | AnonymousUser = Depends(require_user)):
     csv_text = (
         "first_name,last_name,email,student_code,course,image_name\n"
         "Kai,Nguyen,kai@example.com,STU100,Yr6 Digital Tech S2 2025,kai.png\n"
@@ -532,6 +535,6 @@ def bulk_template():
     )
     return Response(
         csv_text,
-        mimetype="text/csv",
+        media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=students_bulk_template.csv"},
     )

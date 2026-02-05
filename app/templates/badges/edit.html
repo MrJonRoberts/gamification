@@ -8,16 +8,19 @@
 </div>
 
 <form method="post" enctype="multipart/form-data">
-  {{ form.csrf_token }}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="row g-3">
     <div class="col-md-6">
-      {{ form.name.label }} {{ form.name(class="form-control") }}
+      <label class="form-label" for="name">Name</label>
+      <input class="form-control" id="name" name="name" type="text" value="{{ badge.name }}" required>
     </div>
     <div class="col-md-3">
-      {{ form.points.label }} {{ form.points(class="form-control") }}
+      <label class="form-label" for="points">Points</label>
+      <input class="form-control" id="points" name="points" type="number" value="{{ badge.points }}">
     </div>
     <div class="col-md-12">
-      {{ form.description.label }} {{ form.description(class="form-control", rows=3) }}
+      <label class="form-label" for="description">Description</label>
+      <textarea class="form-control" id="description" name="description" rows="3">{{ badge.description or '' }}</textarea>
     </div>
 
     <div class="col-md-6">
@@ -33,8 +36,9 @@
     </div>
 
     <div class="col-md-6">
-      {{ form.icon.label }} {{ form.icon(class="form-control") }}
-      <div class="form-text">Upload to replace. Images are center-cropped and resized to 150×150 PNG.</div>
+      <label class="form-label" for="icon">Icon</label>
+      <input class="form-control" id="icon" name="icon" type="file">
+      <div class="form-text">Upload to replace. Images are center-cropped and resized to 50×50 PNG.</div>
     </div>
   </div>
 

@@ -1,184 +1,220 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, Response
-from flask_login import login_required
-from wtforms import StringField, IntegerField, SelectField, validators
-from flask_wtf import FlaskForm
-from ...extensions import db
-from app.models import Course, User
+from __future__ import annotations
 import io
 import pandas as pd
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy.orm import Session
 
-courses_bp = Blueprint("courses", __name__)
+from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
+from app.models import Course, User
+from app.templating import render_template
+from app.utils import flash
 
-class CourseForm(FlaskForm):
-    name = StringField("Course Name", [validators.DataRequired()])
-    semester = SelectField("Semester", choices=[("S1","S1"), ("S2","S2")])
-    year = IntegerField("Year", [validators.DataRequired()])
+router = APIRouter(prefix="/courses", tags=["courses"])
 
-@courses_bp.route("/")
-@login_required
-def list_courses():
-    courses = Course.query.order_by(Course.year.desc(), Course.semester, Course.name).all()
-    return render_template("courses/list.html", courses=courses)
+@router.get("/", response_class=HTMLResponse, name="courses.list_courses")
+def list_courses(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    courses = session.query(Course).order_by(Course.year.desc(), Course.semester, Course.name).all()
+    return render_template("courses/list.html", {"request": request, "courses": courses, "current_user": current_user})
 
-@courses_bp.route("/create", methods=["GET","POST"])
-@login_required
-def create_course():
-    form = CourseForm()
-    if form.validate_on_submit():
-        c = Course(name=form.name.data.strip(), semester=form.semester.data, year=form.year.data)
-        db.session.add(c)
-        db.session.commit()
-        flash("Course created.", "success")
-        return redirect(url_for("courses.list_courses"))
-    return render_template("courses/form.html", form=form)
+@router.get("/create", response_class=HTMLResponse, name="courses.create_course")
+def create_course_form(
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    return render_template("courses/form.html", {"request": request, "current_user": current_user})
 
-@courses_bp.route("/<int:course_id>/enroll", methods=["GET","POST"])
-@login_required
-def enroll(course_id):
-    course = Course.query.get_or_404(course_id)
+@router.post("/create", name="courses.create_course_post")
+def create_course_action(
+    request: Request,
+    name: str = Form(...),
+    semester: str = Form(...),
+    year: int = Form(...),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    c = Course(name=name.strip(), semester=semester, year=year)
+    session.add(c)
+    session.commit()
+    flash(request, "Course created.", "success")
+    return RedirectResponse("/courses/", status_code=303)
 
-    if request.method == "POST":
-        action = request.form.get("action", "single")
+@router.get("/{course_id}/enroll", response_class=HTMLResponse, name="courses.enroll")
+def enroll_form(
+    course_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
-        # 1) Enrol existing student from dropdown
-        if action == "single":
-            try:
-                user_id = int(request.form["user_id"])
-            except (KeyError, ValueError):
-                flash("Please choose a student.", "warning")
-                return redirect(url_for("courses.enroll", course_id=course.id))
+    students = session.query(User).filter_by(role="student").order_by(User.last_name, User.first_name).all()
+    enrolled_students = sorted(course.students, key=lambda s: (s.last_name.lower(), s.first_name.lower()))
 
-            u = User.query.get_or_404(user_id)
-            if u not in course.students:
-                course.students.append(u)
-                db.session.commit()
-                flash(f"Enrolled {u.full_name}.", "success")
+    return render_template(
+        "courses/enroll.html",
+        {
+            "request": request,
+            "course": course,
+            "students": students,
+            "enrolled_students": enrolled_students,
+            "current_user": current_user,
+        },
+    )
+
+@router.post("/{course_id}/enroll", name="courses.enroll_post")
+async def enroll_action(
+    course_id: int,
+    request: Request,
+    action: str = Form("single"),
+    # Single
+    user_id: int = Form(None),
+    # Create
+    first_name: str = Form(None),
+    last_name: str = Form(None),
+    email: str = Form(None),
+    student_code: str = Form(None),
+    # Bulk
+    file: UploadFile = File(None),
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    if action == "single":
+        if user_id is None:
+            flash(request, "Please choose a student.", "warning")
+            return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
+
+        u = session.get(User, user_id)
+        if not u:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if u not in course.students:
+            course.students.append(u)
+            session.commit()
+            flash(request, f"Enrolled {u.full_name}.", "success")
+        else:
+            flash(request, f"{u.full_name} is already enrolled.", "info")
+        return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
+
+    if action == "create":
+        if not (first_name and last_name and email):
+            flash(request, "First name, last name, and email are required to create a student.", "danger")
+            return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
+
+        existing = session.query(User).filter_by(email=email.strip().lower()).first()
+        if existing:
+            u = existing
+        else:
+            u = User(
+                student_code=student_code.strip() if student_code else None,
+                email=email.strip().lower(),
+                first_name=first_name.strip(),
+                last_name=last_name.strip(),
+                role="student",
+                registered_method="site",
+            )
+            u.set_password("ChangeMe123!")
+            session.add(u)
+            session.flush()
+
+        if u not in course.students:
+            course.students.append(u)
+        session.commit()
+        flash(request, f"Student {'created and ' if not existing else ''}enrolled: {u.full_name}.", "success")
+        return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
+
+    if action == "bulk":
+        if not file or not file.filename:
+            flash(request, "Please choose a CSV or XLSX file.", "warning")
+            return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
+
+        fname = file.filename.lower()
+        try:
+            contents = await file.read()
+            if fname.endswith(".csv"):
+                df = pd.read_csv(io.BytesIO(contents))
+            elif fname.endswith(".xlsx") or fname.endswith(".xls"):
+                df = pd.read_excel(io.BytesIO(contents))
             else:
-                flash(f"{u.full_name} is already enrolled.", "info")
-            return redirect(url_for("courses.enroll", course_id=course.id))
+                flash(request, "Unsupported file type. Please upload .csv or .xlsx", "danger")
+                return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
+        except Exception as e:
+            flash(request, f"Could not read file: {e}", "danger")
+            return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
 
-        # 2) Create a new student and enrol
-        if action == "create":
-            first = request.form.get("first_name", "").strip()
-            last = request.form.get("last_name", "").strip()
-            email = request.form.get("email", "").strip().lower()
-            code = request.form.get("student_code", "").strip() or None
+        df.columns = [c.strip().lower() for c in df.columns]
+        required = {"email", "first_name", "last_name"}
+        missing = required - set(df.columns)
+        if missing:
+            flash(request, f"Missing required columns: {', '.join(sorted(missing))}", "danger")
+            return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
 
-            if not (first and last and email):
-                flash("First name, last name, and email are required to create a student.", "danger")
-                return redirect(url_for("courses.enroll", course_id=course.id))
+        created, enrolled, skipped = 0, 0, 0
+        for _, row in df.iterrows():
+            u_email = str(row.get("email", "")).strip().lower()
+            u_first = str(row.get("first_name", "")).strip()
+            u_last  = str(row.get("last_name", "")).strip()
+            u_code  = str(row.get("student_code", "")).strip() or None
 
-            existing = User.query.filter_by(email=email).first()
-            if existing:
-                u = existing
-                # If they already exist but aren’t a student, we’ll still allow enrol; role won’t change.
-            else:
+            if not (u_email and u_first and u_last):
+                skipped += 1
+                continue
+
+            u = session.query(User).filter_by(email=u_email).first()
+            if not u:
                 u = User(
-                    student_code=code,
-                    email=email,
-                    first_name=first,
-                    last_name=last,
+                    student_code=u_code,
+                    email=u_email,
+                    first_name=u_first,
+                    last_name=u_last,
                     role="student",
-                    registered_method="site",
+                    registered_method="bulk",
                 )
                 u.set_password("ChangeMe123!")
-                db.session.add(u)
-                db.session.flush()
+                session.add(u)
+                session.flush()
+                created += 1
 
             if u not in course.students:
                 course.students.append(u)
-            db.session.commit()
-            flash(f"Student {'created and ' if not existing else ''}enrolled: {u.full_name}.", "success")
-            return redirect(url_for("courses.enroll", course_id=course.id))
+                enrolled += 1
 
-        # 3) Bulk upload via CSV/XLSX
-        if action == "bulk":
-            file = request.files.get("file")
-            if not file or file.filename == "":
-                flash("Please choose a CSV or XLSX file.", "warning")
-                return redirect(url_for("courses.enroll", course_id=course.id))
+        session.commit()
+        msg = f"Bulk upload complete: {created} created, {enrolled} enrolled, {skipped} skipped (missing fields)."
+        flash(request, msg, "success")
+        return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
 
-            fname = file.filename.lower()
-            try:
-                if fname.endswith(".csv"):
-                    df = pd.read_csv(file)
-                elif fname.endswith(".xlsx") or fname.endswith(".xls"):
-                    df = pd.read_excel(file)
-                else:
-                    flash("Unsupported file type. Please upload .csv or .xlsx", "danger")
-                    return redirect(url_for("courses.enroll", course_id=course.id))
-            except Exception as e:
-                flash(f"Could not read file: {e}", "danger")
-                return redirect(url_for("courses.enroll", course_id=course.id))
+    flash(request, "Unknown action.", "danger")
+    return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
 
-            # Normalise columns
-            df.columns = [c.strip().lower() for c in df.columns]
-            required = {"email", "first_name", "last_name"}
-            missing = required - set(df.columns)
-            if missing:
-                flash(f"Missing required columns: {', '.join(sorted(missing))}", "danger")
-                return redirect(url_for("courses.enroll", course_id=course.id))
-
-            # Optional column: student_code
-            created, enrolled, skipped = 0, 0, 0
-            for _, row in df.iterrows():
-                email = str(row.get("email", "")).strip().lower()
-                first = str(row.get("first_name", "")).strip()
-                last  = str(row.get("last_name", "")).strip()
-                code  = str(row.get("student_code", "")).strip() or None
-
-                if not (email and first and last):
-                    skipped += 1
-                    continue
-
-                u = User.query.filter_by(email=email).first()
-                if not u:
-                    u = User(
-                        student_code=code,
-                        email=email,
-                        first_name=first,
-                        last_name=last,
-                        role="student",
-                        registered_method="bulk",
-                    )
-                    u.set_password("ChangeMe123!")
-                    db.session.add(u)
-                    db.session.flush()
-                    created += 1
-
-                if u not in course.students:
-                    course.students.append(u)
-                    enrolled += 1
-
-            db.session.commit()
-            msg = f"Bulk upload complete: {created} created, {enrolled} enrolled, {skipped} skipped (missing fields)."
-            flash(msg, "success")
-            return redirect(url_for("courses.enroll", course_id=course.id))
-
-        flash("Unknown action.", "danger")
-        return redirect(url_for("courses.enroll", course_id=course.id))
-
-    # GET
-    students = User.query.filter_by(role="student").order_by(User.last_name, User.first_name).all()
-    enrolled_students = course.students.order_by(User.last_name, User.first_name).all()
-    return render_template("courses/enroll.html", course=course, students=students, enrolled_students=enrolled_students)
-
-@courses_bp.route("/enroll_template.csv")
-@login_required
-def enroll_template():
-    # Dynamic CSV template download
+@router.get("/enroll_template.csv", name="courses.enroll_template")
+def enroll_template(current_user: User | AnonymousUser = Depends(require_user)):
     csv_text = "first_name,last_name,email,student_code\nKai,Nguyen,kai@example.com,STU100\nMia,Singh,mia@example.com,STU101\n"
     return Response(
         csv_text,
-        mimetype="text/csv",
+        media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=enroll_template.csv"},
     )
 
-@courses_bp.route("/<int:course_id>/students")
-@login_required
-def students_in_course(course_id):
-    course = Course.query.get_or_404(course_id)
-    # course.students is a dynamic relationship; ensure deterministic order
+@router.get("/{course_id}/students", response_class=HTMLResponse, name="courses.students_in_course")
+def students_in_course(
+    course_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
     students = sorted(course.students, key=lambda s: (s.last_name.lower(), s.first_name.lower()))
-    return render_template("courses/students.html", course=course, students=students)
-
+    return render_template("courses/students.html", {"request": request, "course": course, "students": students, "current_user": current_user})

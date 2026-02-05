@@ -69,7 +69,7 @@
               <span class="text-muted">–</span>
             {% endif %}
           </td>
-          <td><span class="badge bg-info text-dark">{{ u.registration_method or 'site' }}</span></td>
+          <td><span class="badge bg-info text-dark">{{ u.registered_method or 'site' }}</span></td>
           <td>
             <form method="post" action="{{ url_for('admin.users_toggle_active', user_id=u.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

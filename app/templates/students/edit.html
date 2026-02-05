@@ -8,12 +8,24 @@
 </div>
 
 <form method="post" enctype="multipart/form-data">
-  {{ form.csrf_token }}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="row g-3">
-    <div class="col-md-3">{{ form.student_code.label }} {{ form.student_code(class="form-control") }}</div>
-    <div class="col-md-3">{{ form.email.label }} {{ form.email(class="form-control") }}</div>
-    <div class="col-md-3">{{ form.first_name.label }} {{ form.first_name(class="form-control") }}</div>
-    <div class="col-md-3">{{ form.last_name.label }} {{ form.last_name(class="form-control") }}</div>
+    <div class="col-md-3">
+      <label class="form-label" for="student_code">Student Code</label>
+      <input class="form-control" id="student_code" name="student_code" type="text" value="{{ student.student_code or '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="email">Email</label>
+      <input class="form-control" id="email" name="email" type="email" value="{{ student.email }}" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="first_name">First Name</label>
+      <input class="form-control" id="first_name" name="first_name" type="text" value="{{ student.first_name }}" required>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label" for="last_name">Last Name</label>
+      <input class="form-control" id="last_name" name="last_name" type="text" value="{{ student.last_name }}" required>
+    </div>
 
     <div class="col-md-6">
       <label class="form-label">Current photo</label>
@@ -27,8 +39,9 @@
       </div>
     </div>
     <div class="col-md-6">
-      {{ form.image.label }} {{ form.image(class="form-control") }}
-      <div class="form-text">Upload to replace. We’ll center-crop & resize to 150×150.</div>
+      <label class="form-label" for="image">Photo</label>
+      <input class="form-control" id="image" name="image" type="file">
+      <div class="form-text">Upload to replace. We’ll center-crop & resize to 50×50.</div>
     </div>
   </div>
 

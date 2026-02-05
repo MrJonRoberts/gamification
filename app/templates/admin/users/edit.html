@@ -7,51 +7,58 @@
   </div>
 
   <form method="post" novalidate>
-    {{ form.csrf_token }}
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <div class="row g-3">
       <div class="col-md-6">
-        <label class="form-label">{{ form.first_name.label.text }}</label>
-        {{ form.first_name(class="form-control") }}
-        {% for e in form.first_name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        <label class="form-label" for="first_name">First Name</label>
+        <input class="form-control" id="first_name" name="first_name" type="text" value="{{ u.first_name }}" required>
       </div>
       <div class="col-md-6">
-        <label class="form-label">{{ form.last_name.label.text }}</label>
-        {{ form.last_name(class="form-control") }}
-        {% for e in form.last_name.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        <label class="form-label" for="last_name">Last Name</label>
+        <input class="form-control" id="last_name" name="last_name" type="text" value="{{ u.last_name }}" required>
       </div>
 
       <div class="col-md-6">
-        <label class="form-label">{{ form.email.label.text }}</label>
-        {{ form.email(class="form-control") }}
-        {% for e in form.email.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        <label class="form-label" for="email">Email</label>
+        <input class="form-control" id="email" name="email" type="email" value="{{ u.email }}" required>
       </div>
       <div class="col-md-3">
-        <label class="form-label">{{ form.student_code.label.text }}</label>
-        {{ form.student_code(class="form-control") }}
-        {% for e in form.student_code.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        <label class="form-label" for="student_code">Student Code</label>
+        <input class="form-control" id="student_code" name="student_code" type="text" value="{{ u.student_code or '' }}">
       </div>
       <div class="col-md-3">
-        <label class="form-label">{{ form.registration_method.label.text }}</label>
-        {{ form.registration_method(class="form-select") }}
+        <label class="form-label" for="registration_method">Registration Method</label>
+        <select class="form-select" id="registration_method" name="registration_method">
+          <option value="site" {% if u.registered_method == 'site' %}selected{% endif %}>site</option>
+          <option value="bulk" {% if u.registered_method == 'bulk' %}selected{% endif %}>bulk</option>
+        </select>
       </div>
 
       <div class="col-md-3 d-flex align-items-center">
         <div class="form-check mt-4">
-          {{ form.is_active(class="form-check-input", id="is_active") }}
-          <label class="form-check-label" for="is_active">{{ form.is_active.label.text }}</label>
+          <input class="form-check-input" id="is_active" name="is_active" type="checkbox" {% if u.is_active %}checked{% endif %}>
+          <label class="form-check-label" for="is_active">Is Active</label>
         </div>
       </div>
 
       <div class="col-md-6">
-        <label class="form-label">{{ form.roles.label.text }}</label>
-        {{ form.roles(class="form-select", multiple=True, size=6) }}
+        <label class="form-label" for="roles">Roles</label>
+        <select class="form-select" id="roles" name="roles" multiple size="6">
+          {% for r in roles %}
+            <option value="{{ r.id }}" {% if r in u.roles %}selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
         <div class="form-text">Hold Ctrl/Cmd to toggle multiple roles.</div>
       </div>
 
       <div class="col-md-6">
-        <label class="form-label">{{ form.groups.label.text }}</label>
-        {{ form.groups(class="form-select", multiple=True, size=8) }}
+        <label class="form-label" for="groups">Groups</label>
+        <select class="form-select" id="groups" name="groups" multiple size="8">
+          {% for g in groups %}
+            <option value="{{ g.id }}" {% if g in u.groups %}selected{% endif %}>{{ g.name }}</option>
+          {% endfor %}
+        </select>
         <div class="form-text">Hold Ctrl/Cmd to toggle multiple groups.</div>
       </div>
 

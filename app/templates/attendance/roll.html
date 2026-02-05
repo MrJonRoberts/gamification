@@ -35,13 +35,8 @@
     </div>
   </div>
 
-  <form method="post" action="{{ url_for('attendance.mark_attendance', course_id=course.id, lesson_id=lesson.id) }}" id="rollForm">
-    {# CSRF support, whichever style you use #}
-    {% if csrf_token is defined %}
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {% elif form is defined and form.csrf_token is defined %}
-      {{ form.csrf_token }}
-    {% endif %}
+  <form method="post" action="{{ url_for('attendance.roll_post', course_id=course.id, lesson_id=lesson.id) }}" id="rollForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <div class="card mb-3">
       <div class="card-body d-flex flex-wrap gap-2">

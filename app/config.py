@@ -11,6 +11,7 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class Settings:
+    ROOT_PATH: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
     SQLALCHEMY_DATABASE_URI: str = os.getenv("DATABASE_URL", "sqlite:///app.db")
     REMEMBER_COOKIE_DURATION: timedelta = timedelta(days=14)
