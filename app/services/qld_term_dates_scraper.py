@@ -17,7 +17,7 @@ Requires: requests, beautifulsoup4
 import argparse
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 import requests
@@ -161,7 +161,7 @@ def scrape_term_dates(url: str = SOURCE_URL) -> Dict:
     if not years_data:
         txt_all = soup.get_text("\n", strip=True)
         ym = re.search(r"\b(20[0-9]{2})\b", txt_all)
-        inferred_year = int(ym.group(1)) if ym else datetime.utcnow().year
+        inferred_year = int(ym.group(1)) if ym else datetime.now(timezone.utc).year
         block = normalize_text(txt_all)
         terms = []
         for m in TERM_LINE_RE.finditer(block):

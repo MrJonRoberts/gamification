@@ -34,6 +34,10 @@ Base = declarative_base()
 
 
 class Database:
+    """
+    A shim class for SQLAlchemy to provide a Flask-SQLAlchemy-like interface
+    for model definitions and session management.
+    """
     Model = Base
     Column = Column
     Integer = Integer
@@ -63,18 +67,22 @@ class Database:
     select = staticmethod(select)
 
     def __init__(self, database_url: str):
+        """Initializes the database engine and session factory."""
         self.engine = create_engine(database_url, future=True)
         self.SessionLocal = sessionmaker(bind=self.engine, autoflush=False, autocommit=False, future=True)
         self.session = scoped_session(self.SessionLocal)
         Base.query = self.session.query_property()
 
     def remove_session(self) -> None:
+        """Removes the current scoped session."""
         self.session.remove()
 
     def create_all(self) -> None:
+        """Creates all tables in the database."""
         Base.metadata.create_all(self.engine)
 
     def drop_all(self) -> None:
+        """Drops all tables from the database."""
         Base.metadata.drop_all(self.engine)
 
     def __getattr__(self, item: str) -> Any:

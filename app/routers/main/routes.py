@@ -16,6 +16,9 @@ def index(
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
+    """
+    Renders the homepage with the student leaderboard.
+    """
     rows = session.execute(
         db.select(
             User.id,
@@ -40,6 +43,9 @@ def index(
 
 @router.get("/timer", response_class=HTMLResponse, name="main.timer")
 def timer(request: Request, current_user: User | AnonymousUser = Depends(require_user)):
+    """
+    Renders a simple countdown timer page.
+    """
     return render_template(
         "timer.html",
         {

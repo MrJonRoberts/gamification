@@ -88,9 +88,11 @@ def reset_seed(
         flash(request, f"Reset failed: {e}", "danger")
         return RedirectResponse("/admin/db-tools", status_code=303)
 
+    response = RedirectResponse("/auth/login", status_code=303)
+    response.delete_cookie(settings.AUTH_COOKIE_NAME)
     request.session.pop("user_id", None)
     flash(request, "Database reset & seed complete. Please log in with the seeded admin.", "success")
-    return RedirectResponse("/auth/login", status_code=303)
+    return response
 
 @router.get("/users", response_class=HTMLResponse, name="admin.users_index")
 def users_index(

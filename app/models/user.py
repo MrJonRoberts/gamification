@@ -1,9 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timezone, timezone
 from app.extensions import db
 from app.security import hash_password, verify_password
 
 
 class User(db.Model):
+    """
+    User model representing students, issuers, and admins.
+    Handles authentication and basic profile information.
+    """
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
@@ -14,7 +18,7 @@ class User(db.Model):
     role = db.Column(db.String(20), nullable=False, default="student")  # student|issuer|admin
     password_hash = db.Column(db.String(255), nullable=False)
     registered_method = db.Column(db.String(20), nullable=False, default="site")  # site|bulk
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     avatar = db.Column(db.String(255), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
@@ -45,13 +49,16 @@ class User(db.Model):
     groups = db.relationship("Group", secondary="user_groups", backref="users")
 
     def set_password(self, password: str):
+        """Sets the user's password hash."""
         self.password_hash = hash_password(password)
 
     def check_password(self, password: str) -> bool:
+        """Verifies the user's password."""
         return verify_password(password, self.password_hash)
 
     @property
     def full_name(self):
+        """Returns the user's full name."""
         return f"{self.first_name} {self.last_name}"
 
     @property

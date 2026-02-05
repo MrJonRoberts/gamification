@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from app.extensions import db
 
 class Behaviour(db.Model):
@@ -8,7 +8,7 @@ class Behaviour(db.Model):
     course_id = db.Column(db.Integer, db.ForeignKey("courses.id"), nullable=True, index=True)
     delta = db.Column(db.Integer, nullable=False)
     note = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
 
     user = db.relationship("User", foreign_keys=[user_id])

@@ -17,6 +17,9 @@ class Settings:
     REMEMBER_COOKIE_DURATION: timedelta = timedelta(days=14)
     APP_NAME: str = os.getenv("APP_NAME", "app")
     APP_VERSION: str = os.getenv("APP_VERSION", "0.0.1")
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 1 week
+    AUTH_COOKIE_NAME: str = "access_token"
     ALLOWED_EXTENSIONS: set[str] = ("png", "jpg", "jpeg", "webp")
     MAX_CONTENT_LENGTH: int = 4 * 1024 * 1024
     AUTHOR: str = "JRO"

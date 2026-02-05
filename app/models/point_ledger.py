@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from app.extensions import db
 
 class PointLedger(db.Model):
@@ -10,7 +10,7 @@ class PointLedger(db.Model):
     source = db.Column(db.String(50), nullable=False, default="manual")  # manual|badge|award
     course_id = db.Column(db.Integer, db.ForeignKey("courses.id"), nullable=True)
     issued_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = db.relationship("User", foreign_keys=[user_id], backref="points")
     course = db.relationship("Course")

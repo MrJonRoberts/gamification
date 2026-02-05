@@ -3,21 +3,25 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.config import settings
-from app.blueprints.auth.routes import router as auth_router
-from app.blueprints.main.routes import router as main_router
-from app.blueprints.students.routes import router as students_router
-from app.blueprints.courses.routes import router as courses_router
-from app.blueprints.badges.routes import router as badges_router
-from app.blueprints.awards.routes import router as awards_router
-from app.blueprints.points.routes import router as points_router
-from app.blueprints.admin.routes import router as admin_router
-from app.blueprints.behaviours.routes import router as behaviours_router
-from app.blueprints.seating.routes import router as seating_router
-from app.blueprints.attendance.routes import router as attendance_router
-from app.blueprints.schedule.routes import router as schedule_router
+from app.routers.auth.routes import router as auth_router
+from app.routers.main.routes import router as main_router
+from app.routers.students.routes import router as students_router
+from app.routers.courses.routes import router as courses_router
+from app.routers.badges.routes import router as badges_router
+from app.routers.awards.routes import router as awards_router
+from app.routers.points.routes import router as points_router
+from app.routers.admin.routes import router as admin_router
+from app.routers.behaviours.routes import router as behaviours_router
+from app.routers.seating.routes import router as seating_router
+from app.routers.attendance.routes import router as attendance_router
+from app.routers.schedule.routes import router as schedule_router
 
 
 def create_app() -> FastAPI:
+    """
+    Application factory to create and configure the FastAPI instance.
+    Sets up middleware, static files, and includes all routers.
+    """
     app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION)
 
     app.add_middleware(
