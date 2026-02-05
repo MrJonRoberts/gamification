@@ -1,9 +1,6 @@
-
-from datetime import timedelta
-from flask import abort
+from datetime import date, datetime, time as dtime, timedelta
 from app.extensions import db
 from app.models import AcademicYear, Term, Course, WeeklyPattern, Lesson, LessonStatus
-from datetime import datetime, timedelta, date, time as dtime
 
 
 def _terms_map(year_obj):
@@ -28,10 +25,12 @@ def week_of_term(term, d):
     return ((d - term.start_date).days // 7) + 1
 
 def generate_lessons_for_course(course_id: int) -> int:
-    course = Course.query.get_or_404(course_id)
+    course = db.session.get(Course, course_id)
+    if not course:
+        raise ValueError(f"Course {course_id} not found")
     year_obj = AcademicYear.query.filter_by(year=course.year).first()
     if not year_obj:
-        abort(400, description=f"SchoolYear {course.year} not configured")
+        raise ValueError(f"Academic year {course.year} not configured")
 
     start, end = semester_date_span(year_obj, course.semester)
     active_days = {wp.day_of_week: wp for wp in course.schedules if wp.is_active}
@@ -85,4 +84,3 @@ def parse_time(hhmm: str, fallback: dtime = dtime(9, 0)) -> dtime:
         return datetime.strptime(hhmm, "%H:%M").time()
     except Exception:
         return fallback
-

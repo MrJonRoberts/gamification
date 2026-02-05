@@ -1,10 +1,9 @@
-from app import create_app, db
+from app.extensions import db
 from seeds.prep_test_data import seed_badges_and_awards, seed_courses
 from seeds.setup_data import seed_academic_years, seed_users
 
 def main():
-    app = create_app()
-    with app.app_context():
+    try:
         db.drop_all()
         db.create_all()
 
@@ -14,6 +13,8 @@ def main():
         seed_badges_and_awards(users)
 
         print("Database seeded. Admin login: admin@example.com / Admin123!")
+    finally:
+        db.remove_session()
 
 
 if __name__ == '__main__':
