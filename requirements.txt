@@ -9,6 +9,7 @@ itsdangerous
 email-validator
 pandas
 openpyxl
+pydantic_settings
 
 Pillow>=10.3.0
 

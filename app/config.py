@@ -15,7 +15,7 @@ class Settings:
     SQLALCHEMY_DATABASE_URI: str = os.getenv("DATABASE_URL", "sqlite:///app.db")
     REMEMBER_COOKIE_DURATION: timedelta = timedelta(days=14)
     APP_NAME: str = os.getenv("APP_NAME", "app")
-    APP_VERSION: str = os.getenv("APP_VERSION", "1.0.0")
+    APP_VERSION: str = os.getenv("APP_VERSION", "0.0.1")
     ALLOWED_EXTENSIONS: set[str] = ("png", "jpg", "jpeg", "webp")
     MAX_CONTENT_LENGTH: int = 4 * 1024 * 1024
     AUTHOR: str = "JRO"
