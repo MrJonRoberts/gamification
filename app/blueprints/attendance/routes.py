@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from sqlalchemy import func
 from app.services.attendance_service import ensure_attendance_rows, set_no_class_for_lesson
+from app.services.orm_utils import first_model_attribute
 from app.models import Course, Lesson, User, Attendance, Enrollment, AttendanceStatus
 
 # Map normalized statuses -> display metadata
@@ -114,8 +115,16 @@ def course_attendance(course_id):
 
     # Lessons for course (optionally same-day filter if you have datetimes)
     lessons_q = Lesson.query.filter(Lesson.course_id == course.id)
-    if hasattr(Lesson, "starts_at"):
-        lessons_q = lessons_q.filter(func.date(Lesson.starts_at) == selected_date).order_by(Lesson.starts_at.asc())
+    lesson_date_col = first_model_attribute(Lesson, ["date"])
+    lesson_time_col = first_model_attribute(Lesson, ["start_time", "starts_at"])
+    if lesson_date_col is not None:
+        lessons_q = lessons_q.filter(lesson_date_col == selected_date)
+        if lesson_time_col is not None:
+            lessons_q = lessons_q.order_by(lesson_date_col.asc(), lesson_time_col.asc())
+        else:
+            lessons_q = lessons_q.order_by(lesson_date_col.asc())
+    elif lesson_time_col is not None:
+        lessons_q = lessons_q.order_by(lesson_time_col.asc())
     else:
         lessons_q = lessons_q.order_by(Lesson.id.asc())
 
@@ -331,4 +340,3 @@ def api_summary(course_id):
         student_ratio[sid] = (present_like / denom) if denom else 0.0
 
     return jsonify({"lessons": counts, "student_ratio": student_ratio})
-
