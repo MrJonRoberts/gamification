@@ -15,6 +15,7 @@ from app.services.schedule_services import *
 from app.models.schedule import Term, WeeklyPattern, Lesson, AcademicYear
 from app.extensions import db
 from app.models import Course
+from app.services.orm_utils import first_model_attribute
 
 from app.services.qld_term_dates_scraper import *
 
@@ -45,14 +46,10 @@ TERM_REGEX = re.compile(
 
 
 def get_lesson_start_attr():
-    for name in LESSON_START_FIELDS:
-        if hasattr(Lesson, name):
-            return name
-    return None
+    return first_model_attribute(Lesson, LESSON_START_FIELDS)
 
 def lesson_order_column():
-    name = get_lesson_start_attr()
-    return getattr(Lesson, name) if name else Lesson.id
+    return get_lesson_start_attr() or Lesson.id
 
 def ensure_year_obj(year: int) -> AcademicYear | None:
     return AcademicYear.query.filter_by(year=year).first()
@@ -428,10 +425,13 @@ def course_schedule(course_id):
                  .all())
 
     # Load lessons for this course; be defensive about optional fields.
-    lessons = (Lesson.query
-               .filter_by(course_id=course.id)
-               .order_by(getattr(Lesson, "date", None), getattr(Lesson, "start_time", None))
-               .all())
+    lesson_date_col = first_model_attribute(Lesson, ["date"])
+    lesson_time_col = first_model_attribute(Lesson, ["start_time", "starts_at"])
+    order_columns = [col for col in (lesson_date_col, lesson_time_col) if col is not None]
+    lessons_q = Lesson.query.filter_by(course_id=course.id)
+    if order_columns:
+        lessons_q = lessons_q.order_by(*order_columns)
+    lessons = lessons_q.all()
 
     # Compute a simple "upcoming" list from today (if Lesson has a date field)
     today = date.today()
