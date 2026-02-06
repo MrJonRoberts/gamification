@@ -12,10 +12,10 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                 <div class="mb-4">
-                    <label for="file" class="form-label fw-semibold">Choose CSV File</label>
-                    <input type="file" name="file" id="file" class="form-control" accept=".csv" required>
+                    <label for="file" class="form-label fw-semibold">Choose File (CSV or XLSX)</label>
+                    <input type="file" name="file" id="file" class="form-control" accept=".csv,.xlsx" required>
                     <div class="form-text mt-2">
-                        Upload a CSV file containing user data. You can download a sample template below.
+                        Upload a CSV file or a TASS Class Listing XLSX file. You can download a sample CSV template below.
                     </div>
                 </div>
 
@@ -30,7 +30,17 @@
     </div>
 
     <div class="mt-5">
-        <h2 class="h6 text-uppercase fw-bold text-muted mb-3">CSV Format Details</h2>
+        <h2 class="h6 text-uppercase fw-bold text-muted mb-3">File Format Details</h2>
+        <div class="mb-4">
+            <h3 class="h6 fw-bold">TASS XLSX Format</h3>
+            <p class="text-muted small">
+                Supports direct upload of "CLASS LISTING" exports from TASS.
+                Students will be automatically assigned to groups based on the Class Name, House, and PC/Tutor Group columns.
+                The student's code will be set as their initial password.
+            </p>
+        </div>
+
+        <h3 class="h6 fw-bold">Standard CSV Columns</h3>
         <div class="table-responsive">
             <table class="table table-sm table-bordered bg-white">
                 <thead class="table-light">
