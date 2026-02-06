@@ -6,7 +6,7 @@ from passlib.context import CryptContext
 
 from app.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
 
 def hash_password(password: str) -> str:
@@ -17,6 +17,14 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed_password: str) -> bool:
     """Verifies a plain-text password against a hash."""
     return pwd_context.verify(password, hashed_password)
+
+
+def verify_and_update_password(password: str, hashed_password: str) -> tuple[bool, str | None]:
+    """
+    Verifies a plain-text password against a hash and returns whether it's valid
+    and a new hash if it needs to be updated (e.g., migration from bcrypt to argon2).
+    """
+    return pwd_context.verify_and_update(password, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
 from app.models import User
-from app.security import create_access_token
+from app.security import create_access_token, verify_and_update_password
 from app.templating import render_template
 from app.utils import flash
 
@@ -27,7 +27,16 @@ def login_action(
 ):
     """Handles the login form submission and issues a JWT token."""
     user = session.query(User).filter(User.email == email.lower().strip()).first()
-    if user and user.check_password(password):
+    if not user:
+        flash(request, "Invalid credentials", "danger")
+        return RedirectResponse("/auth/login", status_code=303)
+
+    verified, new_hash = verify_and_update_password(password, user.password_hash)
+    if verified:
+        if new_hash:
+            user.password_hash = new_hash
+            session.commit()
+
         token = create_access_token(data={"sub": str(user.id)})
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(
