@@ -1,6 +1,12 @@
 from app.extensions import db
 from seeds.prep_test_data import seed_badges_and_awards, seed_courses
-from seeds.setup_data import seed_academic_years, seed_users
+from seeds.setup_data import (
+    seed_academic_years,
+    seed_groups,
+    seed_roles,
+    seed_users,
+)
+
 
 def main():
     try:
@@ -8,7 +14,9 @@ def main():
         db.create_all()
 
         seed_academic_years()
-        users = seed_users()
+        roles = seed_roles()
+        groups = seed_groups()
+        users = seed_users(roles, groups)
         seed_courses(users)
         seed_badges_and_awards(users)
 
