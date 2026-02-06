@@ -5,7 +5,8 @@ sqlalchemy
 jinja2
 python-multipart
 python-jose[cryptography]
-passlib[bcrypt]
+passlib[argon2,bcrypt]
+argon2-cffi==25.1.0
 bcrypt==3.2.2
 itsdangerous
 email-validator
