@@ -122,6 +122,7 @@ def schedule_setup_form(
     patterns = (session.query(WeeklyPattern)
                 .filter_by(course_id=course.id, is_active=True)
                 .order_by(WeeklyPattern.day_of_week.asc()).all())
+    patterns_dict = {p.day_of_week: p for p in patterns}
     return render_template("schedule/setup.html",
                            {
                                "request": request,
@@ -129,18 +130,17 @@ def schedule_setup_form(
                                "default_year": default_year,
                                "default_terms": default_terms,
                                "patterns": patterns,
+                               "patterns_dict": patterns_dict,
                                "current_user": current_user,
                            })
 
 @router.post("/{course_id}/schedule/setup", name="schedule.schedule_setup_post")
-def schedule_setup_action(
+async def schedule_setup_action(
     course_id: int,
     request: Request,
     year: int = Form(None),
     term_mode: str = Form("use_semester"),
     terms: List[int] = Form([]),
-    start_time_str: str = Form("09:00", alias="start_time"),
-    end_time_str: str = Form("10:00", alias="end_time"),
     days: List[int] = Form([]),
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
@@ -148,6 +148,8 @@ def schedule_setup_action(
     course = session.get(Course, course_id)
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
+
+    form_data = await request.form()
 
     year = year or course.year
     if term_mode == "use_semester":
@@ -163,24 +165,29 @@ def schedule_setup_action(
         flash(request, f"Year {year} / terms {term_numbers} not configured yet.", "warning")
         return RedirectResponse(f"/admin/year/setup?year={year}&next=/courses/{course_id}/schedule/setup", status_code=303)
 
-    start_time = parse_time(start_time_str, time(9, 0))
-    end_time = parse_time(end_time_str, time(10, 0))
-
-    if end_time <= start_time:
-        flash(request, "End time must be after start time.", "danger")
-        return RedirectResponse(f"/courses/{course_id}/schedule/setup", status_code=303)
-
     if not days:
         flash(request, "Choose at least one day of the week.", "danger")
         return RedirectResponse(f"/courses/{course_id}/schedule/setup", status_code=303)
 
+    day_configs = {}
+    day_names = {0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday", 4: "Friday", 5: "Saturday", 6: "Sunday"}
     for dow in days:
+        st_str = form_data.get(f"start_time_{dow}")
+        et_str = form_data.get(f"end_time_{dow}")
+        st = parse_time(st_str, time(9, 0))
+        et = parse_time(et_str, time(10, 0))
+        if et <= st:
+            flash(request, f"End time must be after start time for {day_names.get(dow, 'Day ' + str(dow))}.", "danger")
+            return RedirectResponse(f"/courses/{course_id}/schedule/setup", status_code=303)
+        day_configs[dow] = (st, et)
+
+    for dow, (st, et) in day_configs.items():
         wp = session.query(WeeklyPattern).filter_by(course_id=course.id, day_of_week=dow).first()
         if not wp:
             wp = WeeklyPattern(course_id=course.id, day_of_week=dow)
             session.add(wp)
-        wp.start_time = start_time
-        wp.end_time = end_time
+        wp.start_time = st
+        wp.end_time = et
         wp.is_active = True
     session.flush()
 
@@ -189,7 +196,9 @@ def schedule_setup_action(
     for term in ts:
         cursor = term.start_date
         while cursor <= term.end_date:
-            if cursor.weekday() in days:
+            dow = cursor.weekday()
+            if dow in day_configs:
+                st, et = day_configs[dow]
                 exists = session.query(Lesson).filter_by(course_id=course.id, date=cursor).first()
                 if not exists:
                     lesson = Lesson(
@@ -198,11 +207,14 @@ def schedule_setup_action(
                         date=cursor,
                         week_of_term=week_of_term_for(cursor, term),
                         status="SCHEDULED",
-                        start_time=start_time,
-                        end_time=end_time,
+                        start_time=st,
+                        end_time=et,
                     )
                     session.add(lesson)
                     created += 1
+                else:
+                    exists.start_time = st
+                    exists.end_time = et
             cursor += timedelta(days=1)
 
     session.commit()
