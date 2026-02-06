@@ -18,11 +18,6 @@ This application is built with:
    python -m venv .venv
    source .venv/bin/activate
    ```
-   Windows: 
-
-   ```bash
-   .\.venv\Scripts\activate
-   ```
 2. Install dependencies:
    ```bash
    pip install -r requirements.txt
@@ -55,7 +50,7 @@ The application uses a custom JWT-based authentication system.
 
 If you want sample data, run:
 ```bash
-python seeds/seed.pyp
+python seeds/seed.py
 ```
 
 This resets the database and prints the default admin credentials.
