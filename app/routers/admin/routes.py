@@ -2,6 +2,7 @@ from __future__ import annotations
 import os, sys, runpy, importlib.util, secrets, io, csv
 from datetime import datetime
 from typing import List, Optional
+import pandas as pd
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import or_, func
@@ -272,69 +273,210 @@ async def bulk_upload_action(
     current_user: User = Depends(admin_required),
     session: Session = Depends(get_db),
 ):
-    if not file.filename.lower().endswith(".csv"):
-        flash(request, "Please upload a CSV file.", "warning")
+    filename = file.filename.lower()
+    if not (filename.endswith(".csv") or filename.endswith(".xlsx")):
+        flash(request, "Please upload a CSV or XLSX file.", "warning")
         return RedirectResponse("/admin/users/bulk-upload", status_code=303)
 
     try:
         content = await file.read()
-        text = content.decode("utf-8")
-        reader = csv.DictReader(io.StringIO(text))
-
-        # Normalize column names to lowercase/stripped
-        if reader.fieldnames:
-            reader.fieldnames = [c.strip().lower() for c in reader.fieldnames]
-
-        required = {"email", "first_name", "last_name", "role", "password_hash"}
-        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
-            missing = required - set(reader.fieldnames or [])
-            flash(request, f"Missing columns: {', '.join(missing)}", "danger")
-            return RedirectResponse("/admin/users/bulk-upload", status_code=303)
-
         created = 0
         updated = 0
-
         role_cache = {r.name: r for r in session.query(Role).all()}
 
-        for row in reader:
-            email = (row.get('email') or '').strip().lower()
-            if not email:
-                continue
+        def get_or_create_group(name):
+            if not name: return None
+            name = str(name).strip()
+            if not name or name.lower() == 'nan': return None
+            g = session.query(Group).filter_by(name=name).first()
+            if not g:
+                g = Group(name=name)
+                session.add(g)
+                session.flush()
+            return g
 
-            user = session.query(User).filter_by(email=email).first()
-            is_new = False
-            if not user:
-                user = User(email=email)
-                session.add(user)
-                is_new = True
+        if filename.endswith(".csv"):
+            text = content.decode("utf-8")
+            reader = csv.DictReader(io.StringIO(text))
 
-            user.first_name = (row.get('first_name') or '').strip()
-            user.last_name = (row.get('last_name') or '').strip()
-            user.student_code = (row.get('student_code') or '').strip() or None
-            user.password_hash = (row.get('password_hash') or '').strip()
-            user.registered_method = (row.get('registered_method') or 'bulk').strip()
-            user.is_active = (row.get('is_active') or 'True').strip().lower() == 'true'
-            user.avatar = (row.get('avatar') or '').strip() or None
+            # Normalize column names to lowercase/stripped
+            if reader.fieldnames:
+                reader.fieldnames = [c.strip().lower() for c in reader.fieldnames]
 
-            # Handle created_at if provided
-            created_at_str = row.get('created_at')
-            if created_at_str:
-                try:
-                    user.created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-                except ValueError:
-                    pass
+            required = {"email", "first_name", "last_name", "role", "password_hash"}
+            if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+                missing = required - set(reader.fieldnames or [])
+                flash(request, f"Missing columns: {', '.join(missing)}", "danger")
+                return RedirectResponse("/admin/users/bulk-upload", status_code=303)
 
-            # Handle Role
-            role_name = (row.get('role') or '').strip().lower()
-            if role_name in role_cache:
-                role_obj = role_cache[role_name]
-                if role_obj not in user.roles:
-                    user.roles = [role_obj]
+            for row in reader:
+                email = (row.get('email') or '').strip().lower()
+                if not email:
+                    continue
 
-            if is_new:
-                created += 1
+                user = session.query(User).filter_by(email=email).first()
+                is_new = False
+                if not user:
+                    user = User(email=email)
+                    session.add(user)
+                    is_new = True
+
+                user.first_name = (row.get('first_name') or '').strip()
+                user.last_name = (row.get('last_name') or '').strip()
+                user.student_code = (row.get('student_code') or '').strip() or None
+                user.password_hash = (row.get('password_hash') or '').strip()
+                user.registered_method = (row.get('registered_method') or 'bulk').strip()
+                user.is_active = (row.get('is_active') or 'True').strip().lower() == 'true'
+                user.avatar = (row.get('avatar') or '').strip() or None
+
+                # Handle created_at if provided
+                created_at_str = row.get('created_at')
+                if created_at_str:
+                    try:
+                        user.created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                    except ValueError:
+                        pass
+
+                # Handle Role
+                role_name = (row.get('role') or '').strip().lower()
+                if role_name in role_cache:
+                    role_obj = role_cache[role_name]
+                    if role_obj not in user.roles:
+                        user.roles = [role_obj]
+
+                if is_new:
+                    created += 1
+                else:
+                    updated += 1
+
+        else: # .xlsx
+            df_full = pd.read_excel(io.BytesIO(content), header=None)
+
+            # Detect TASS format
+            is_tass = False
+            if len(df_full) > 2:
+                row0 = str(df_full.iloc[0, 0]).upper()
+                if "TRINITY ANGLICAN SCHOOL" in row0 and "CLASS LISTING" in row0:
+                    is_tass = True
+
+            if is_tass:
+                # Group from Row 3 (index 2)
+                class_info = str(df_full.iloc[2, 0]).strip()
+                # Headers are in Row 2 (index 1)
+                df = pd.read_excel(io.BytesIO(content), header=1)
+                # Skip the class info row which is now the first row of data
+                df = df.iloc[1:]
+                # Drop summary rows
+                df = df[df['Code'].notna()]
+                df = df[~df['Code'].astype(str).str.contains("Students in Class", na=False)]
+
+                student_role = role_cache.get('student')
+                class_group = get_or_create_group(class_info)
+
+                for _, row in df.iterrows():
+                    email = str(row.get('Email', '')).strip().lower()
+                    if not email or email == 'nan':
+                        continue
+
+                    student_code = str(row.get('Code', '')).strip()
+                    if student_code.endswith('.0'): # handle float conversion from excel
+                        student_code = student_code[:-2]
+
+                    user = session.query(User).filter_by(email=email).first()
+                    is_new = False
+                    if not user:
+                        user = User(email=email)
+                        session.add(user)
+                        is_new = True
+                        user.set_password(student_code) # Default password is their code
+
+                    # Split Name: "Lastname, Firstname Middlename"
+                    name_str = str(row.get('Student Name', ''))
+                    if ',' in name_str:
+                        last, first = name_str.split(',', 1)
+                        user.first_name = first.strip()
+                        user.last_name = last.strip()
+                    else:
+                        user.first_name = name_str
+                        user.last_name = ""
+
+                    user.student_code = student_code
+                    user.registered_method = 'bulk-tass'
+
+                    if student_role and student_role not in user.roles:
+                        user.roles.append(student_role)
+
+                    # Group Assignments
+                    if class_group and class_group not in user.groups:
+                        user.groups.append(class_group)
+
+                    # Year Group
+                    year = row.get('Year')
+                    if year and not pd.isna(year):
+                        yg = get_or_create_group(f"Year {int(float(year))}")
+                        if yg and yg not in user.groups:
+                            user.groups.append(yg)
+
+                    # House
+                    house = row.get('House')
+                    if house and not pd.isna(house):
+                        hg = get_or_create_group(f"House {house}")
+                        if hg and hg not in user.groups:
+                            user.groups.append(hg)
+
+                    # PC/Tutor Group
+                    pc = row.get('PC/Tutor Group')
+                    if pc and not pd.isna(pc):
+                        pg = get_or_create_group(f"PC {pc}")
+                        if pg and pg not in user.groups:
+                            user.groups.append(pg)
+
+                    if is_new:
+                        created += 1
+                    else:
+                        updated += 1
             else:
-                updated += 1
+                # Standard XLSX (matching CSV columns)
+                df = pd.read_excel(io.BytesIO(content))
+                df.columns = [c.strip().lower() for c in df.columns]
+                required = {"email", "first_name", "last_name", "role", "password_hash"}
+                if not required.issubset(set(df.columns)):
+                    flash(request, "XLSX file format not recognized. Use TASS format or standard columns.", "danger")
+                    return RedirectResponse("/admin/users/bulk-upload", status_code=303)
+
+                for _, row in df.iterrows():
+                    email = str(row.get('email', '')).strip().lower()
+                    if not email or email == 'nan':
+                        continue
+
+                    user = session.query(User).filter_by(email=email).first()
+                    is_new = False
+                    if not user:
+                        user = User(email=email)
+                        session.add(user)
+                        is_new = True
+
+                    user.first_name = str(row.get('first_name', '')).strip()
+                    user.last_name = str(row.get('last_name', '')).strip()
+                    sc = str(row.get('student_code', '')).strip()
+                    if sc.endswith('.0'): sc = sc[:-2]
+                    user.student_code = sc if sc != 'nan' else None
+                    user.password_hash = str(row.get('password_hash', '')).strip()
+                    user.registered_method = str(row.get('registered_method', 'bulk')).strip()
+                    user.is_active = str(row.get('is_active', 'True')).strip().lower() == 'true'
+                    av = str(row.get('avatar', '')).strip()
+                    user.avatar = av if av != 'nan' else None
+
+                    role_name = str(row.get('role', '')).strip().lower()
+                    if role_name in role_cache:
+                        role_obj = role_cache[role_name]
+                        if role_obj not in user.roles:
+                            user.roles = [role_obj]
+
+                    if is_new:
+                        created += 1
+                    else:
+                        updated += 1
 
         session.commit()
         flash(request, f"Import complete: {created} users created, {updated} updated.", "success")
