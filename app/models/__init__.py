@@ -6,7 +6,7 @@ from .award import Award, AwardBadge, award_progress
 from .point_ledger import PointLedger, user_total_points
 from .behaviour import Behaviour
 from .seating import SeatingPosition
-from .schedule import AcademicYear, Term, WeeklyPattern, Lesson, LessonStatus
+from .schedule import AcademicYear, Term, PublicHoliday, WeeklyPattern, Lesson, LessonStatus
 from .attendance import Attendance, AttendanceStatus
 
 __all__ = [
@@ -19,6 +19,6 @@ __all__ = [
     # behaviour & seating
     "Behaviour", "SeatingPosition",
     # schedule & attendance
-    "AcademicYear", "Term", "WeeklyPattern", "Lesson", "LessonStatus",
+    "AcademicYear", "Term", "PublicHoliday", "WeeklyPattern", "Lesson", "LessonStatus",
     "Attendance", "AttendanceStatus",
 ]

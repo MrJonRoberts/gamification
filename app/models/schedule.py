@@ -17,7 +17,8 @@ class AcademicYear(db.Model):
     year = db.Column(db.Integer, nullable=False, unique=True)
     source = db.Column(db.String(255))
     last_updated = db.Column(db.Date, nullable=True)
-    terms = db.relationship("Term", backref="academic_year", cascade="all, delete-orphan", order_by="Term.number")
+    terms = db.relationship("Term", back_populates="academic_year", cascade="all, delete-orphan", order_by="Term.number")
+    holidays = db.relationship("PublicHoliday", back_populates="academic_year", cascade="all, delete-orphan", order_by="PublicHoliday.date")
 
 class Term(db.Model):
     __tablename__ = "terms"
@@ -29,7 +30,21 @@ class Term(db.Model):
     end_date = db.Column(db.Date, nullable=True)
     weeks = db.Column(db.Integer, nullable=True)
     raw = db.Column(db.Text, nullable=True)
+
+    academic_year = db.relationship("AcademicYear", back_populates="terms")
+
     __table_args__ = (db.UniqueConstraint("academic_year_id", "number", name="uq_year_termnum"),)
+
+class PublicHoliday(db.Model):
+    __tablename__ = "public_holidays"
+    id = db.Column(db.Integer, primary_key=True)
+    academic_year_id = db.Column(db.Integer, db.ForeignKey("academic_years.id"), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    date = db.Column(db.Date, nullable=False)
+
+    academic_year = db.relationship("AcademicYear", back_populates="holidays")
+
+    __table_args__ = (db.UniqueConstraint("academic_year_id", "date", name="uq_year_holiday_date"),)
 
 
 

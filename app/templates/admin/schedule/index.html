@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Manage Year Schedule{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Manage Year Schedule</h1>
+        <div class="btn-group">
+            <a href="{{ url_for('admin.schedule_index', year=year-1) }}" class="btn btn-outline-secondary">&laquo; {{ year-1 }}</a>
+            <button class="btn btn-secondary disabled">{{ year }}</button>
+            <a href="{{ url_for('admin.schedule_index', year=year+1) }}" class="btn btn-outline-secondary">{{ year+1 }} &raquo;</a>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-primary text-white">Fetch Schedule from Queensland Government</div>
+        <div class="card-body">
+            <p class="text-muted small">Fetch the latest term dates and public holidays from official sources. You can adjust them before saving.</p>
+            <form action="{{ url_for('admin.schedule_fetch') }}" method="post" class="row g-3">
+                <div class="col-md-2">
+                    <label for="year" class="form-label">Year</label>
+                    <input type="number" name="year" id="year" class="form-control" value="{{ year }}" required>
+                </div>
+                <div class="col-md-5">
+                    <label for="term_url" class="form-label">Term Dates URL</label>
+                    <input type="url" name="term_url" id="term_url" class="form-control" value="{{ term_url or default_term_url }}">
+                </div>
+                <div class="col-md-5">
+                    <label for="holiday_url" class="form-label">Public Holidays URL</label>
+                    <input type="url" name="holiday_url" id="holiday_url" class="form-control" value="{{ holiday_url or default_holiday_url }}">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary">Fetch & Parse</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if fetched_terms or academic_year %}
+    <form action="{{ url_for('admin.schedule_save') }}" method="post">
+        <input type="hidden" name="year" value="{{ year }}">
+        <input type="hidden" name="term_urls" value="{{ term_url or academic_year.source if academic_year else '' }}">
+
+        <div class="d-flex justify-content-between align-items-end mb-3">
+            <h3>Terms</h3>
+            <div class="text-muted small">
+                Semester 1: Term 1 & 2 | Semester 2: Term 3 & 4
+            </div>
+        </div>
+        <div class="row">
+            {% for i in range(1, 5) %}
+            {% set ns = namespace(term_obj=None) %}
+            {% if fetched_terms %}
+                {% for t in fetched_terms if t.number == i %}{% set ns.term_obj = t %}{% endfor %}
+            {% elif academic_year %}
+                {% for t in academic_year.terms if t.number == i %}{% set ns.term_obj = t %}{% endfor %}
+            {% endif %}
+            {% set term_obj = ns.term_obj %}
+
+            {% set s_date = "" %}
+            {% set e_date = "" %}
+            {% if term_obj %}
+                {% if term_obj is mapping %}
+                    {% if term_obj.start_date %}{% set s_date = term_obj.start_date.strftime('%Y-%m-%d') %}{% endif %}
+                    {% if term_obj.end_date %}{% set e_date = term_obj.end_date.strftime('%Y-%m-%d') %}{% endif %}
+                {% else %}
+                    {% if term_obj.start_date %}{% set s_date = term_obj.start_date.strftime('%Y-%m-%d') %}{% endif %}
+                    {% if term_obj.end_date %}{% set e_date = term_obj.end_date.strftime('%Y-%m-%d') %}{% endif %}
+                {% endif %}
+            {% endif %}
+
+            <div class="col-md-6 mb-3">
+                <div class="card border-info">
+                    <div class="card-body">
+                        <h5 class="card-title text-info">Term {{ i }}</h5>
+                        <div class="row">
+                            <div class="col">
+                                <label class="form-label">Start Date</label>
+                                <input type="date" name="term_{{ i }}_start" class="form-control" value="{{ s_date }}">
+                            </div>
+                            <div class="col">
+                                <label class="form-label">End Date</label>
+                                <input type="date" name="term_{{ i }}_end" class="form-control" value="{{ e_date }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <h3 class="mt-4">Public Holidays</h3>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle" id="holidays-table">
+                <thead class="table-light">
+                    <tr>
+                        <th>Holiday Name</th>
+                        <th>Date</th>
+                        <th style="width: 100px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if fetched_holidays %}
+                        {% for h in fetched_holidays %}
+                        <tr>
+                            <td><input type="text" name="holiday_names" class="form-control" value="{{ h.name }}"></td>
+                            <td><input type="date" name="holiday_dates" class="form-control" value="{{ h.date.strftime('%Y-%m-%d') if h.date else '' }}"></td>
+                            <td><button type="button" class="btn btn-outline-danger btn-sm remove-holiday">Remove</button></td>
+                        </tr>
+                        {% endfor %}
+                    {% elif academic_year %}
+                        {% for h in academic_year.holidays %}
+                        <tr>
+                            <td><input type="text" name="holiday_names" class="form-control" value="{{ h.name }}"></td>
+                            <td><input type="date" name="holiday_dates" class="form-control" value="{{ h.date.strftime('%Y-%m-%d') if h.date else '' }}"></td>
+                            <td><button type="button" class="btn btn-outline-danger btn-sm remove-holiday">Remove</button></td>
+                        </tr>
+                        {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        <button type="button" class="btn btn-outline-secondary mb-4" id="add-holiday">
+            <i class="bi bi-plus-lg"></i> Add Holiday
+        </button>
+
+        <div class="card bg-light mt-4 mb-5 shadow-sm">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-0">Ready to save?</h5>
+                    <p class="text-muted small mb-0">Changes will be applied to the system calendar for {{ year }}.</p>
+                </div>
+                <button type="submit" class="btn btn-success btn-lg px-5">Save Schedule for {{ year }}</button>
+            </div>
+        </div>
+    </form>
+    {% else %}
+    <div class="alert alert-info shadow-sm">
+        No schedule found for {{ year }}. Use the form above to fetch it or start adding dates manually.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('remove-holiday')) {
+        e.target.closest('tr').remove();
+    }
+});
+
+document.getElementById('add-holiday').addEventListener('click', function() {
+    const tbody = document.querySelector('#holidays-table tbody');
+    if (!tbody) {
+        // If the table was empty and no tbody existed
+        location.reload(); // Simple way to show the table
+        return;
+    }
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td><input type="text" name="holiday_names" class="form-control" value=""></td>
+        <td><input type="date" name="holiday_dates" class="form-control" value=""></td>
+        <td><button type="button" class="btn btn-outline-danger btn-sm remove-holiday">Remove</button></td>
+    `;
+    tbody.appendChild(tr);
+});
+</script>
+{% endblock %}

@@ -8,8 +8,9 @@ from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
-from app.models import User
+from app.models import User, AcademicYear, Term, PublicHoliday
 from app.models.user import Role, Group
+from app.services.schedule_parser import fetch_term_dates, fetch_public_holidays, TERM_DATES_URL, PUBLIC_HOLIDAYS_URL
 from app.templating import render_template
 from app.utils import flash
 from app.config import settings
@@ -361,3 +362,132 @@ def bulk_sample_csv(current_user: User = Depends(admin_required)):
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=users_bulk_sample.csv"}
     )
+
+@router.get("/schedule", response_class=HTMLResponse, name="admin.schedule_index")
+def schedule_index(
+    request: Request,
+    year: Optional[int] = None,
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    if year is None:
+        year = datetime.now().year
+
+    academic_year = session.query(AcademicYear).filter_by(year=year).first()
+
+    return render_template(
+        "admin/schedule/index.html",
+        {
+            "request": request,
+            "year": year,
+            "academic_year": academic_year,
+            "default_term_url": TERM_DATES_URL,
+            "default_holiday_url": PUBLIC_HOLIDAYS_URL,
+            "current_user": current_user,
+        }
+    )
+
+@router.post("/schedule/fetch", name="admin.schedule_fetch")
+def schedule_fetch(
+    request: Request,
+    year: int = Form(...),
+    term_url: str = Form(TERM_DATES_URL),
+    holiday_url: str = Form(PUBLIC_HOLIDAYS_URL),
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    try:
+        terms_data = fetch_term_dates(year, term_url)
+        holidays_data = fetch_public_holidays(year, holiday_url)
+
+        # We don't save yet, just return the data to be displayed and adjusted in a form
+        # But wait, the user wants to "display them, allow adjustments... then save"
+        # So I'll store them in the session or just pass them back to the template.
+
+        return render_template(
+            "admin/schedule/index.html",
+            {
+                "request": request,
+                "year": year,
+                "fetched_terms": terms_data,
+                "fetched_holidays": holidays_data,
+                "term_url": term_url,
+                "holiday_url": holiday_url,
+                "default_term_url": TERM_DATES_URL,
+                "default_holiday_url": PUBLIC_HOLIDAYS_URL,
+                "current_user": current_user,
+            }
+        )
+    except Exception as e:
+        flash(request, f"Error fetching schedule: {e}", "danger")
+        return RedirectResponse(f"/admin/schedule?year={year}", status_code=303)
+
+@router.post("/schedule/save", name="admin.schedule_save")
+def schedule_save(
+    request: Request,
+    year: int = Form(...),
+    term_urls: str = Form(""), # source URLs
+    # Terms
+    term_1_start: Optional[str] = Form(None),
+    term_1_end: Optional[str] = Form(None),
+    term_2_start: Optional[str] = Form(None),
+    term_2_end: Optional[str] = Form(None),
+    term_3_start: Optional[str] = Form(None),
+    term_3_end: Optional[str] = Form(None),
+    term_4_start: Optional[str] = Form(None),
+    term_4_end: Optional[str] = Form(None),
+    # Holidays - passed as lists
+    holiday_names: List[str] = Form([]),
+    holiday_dates: List[str] = Form([]),
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    academic_year = session.query(AcademicYear).filter_by(year=year).first()
+    if not academic_year:
+        academic_year = AcademicYear(year=year)
+        session.add(academic_year)
+
+    academic_year.source = term_urls
+    academic_year.last_updated = datetime.now().date()
+
+    # Update Terms
+    term_map = {t.number: t for t in academic_year.terms}
+
+    starts = [term_1_start, term_2_start, term_3_start, term_4_start]
+    ends = [term_1_end, term_2_end, term_3_end, term_4_end]
+    for i in range(1, 5):
+        start_val = starts[i-1]
+        end_val = ends[i-1]
+
+        if start_val and end_val:
+            term = term_map.get(i)
+            if not term:
+                term = Term(academic_year=academic_year, number=i, name=f"Term {i}")
+                session.add(term)
+            term.start_date = datetime.strptime(start_val, "%Y-%m-%d").date()
+            term.end_date = datetime.strptime(end_val, "%Y-%m-%d").date()
+
+    # Update Holidays
+    # Simple approach: clear and recreate
+    academic_year.holidays = []
+    session.flush() # Ensure they are removed before adding new ones to avoid unique constraint issues
+
+    seen_dates = set()
+    for name, date_str in zip(holiday_names, holiday_dates):
+        name = name.strip()
+        date_str = date_str.strip()
+        if name and date_str:
+            d = datetime.strptime(date_str, "%Y-%m-%d").date()
+            if d in seen_dates:
+                continue
+            seen_dates.add(d)
+            holiday = PublicHoliday(
+                academic_year=academic_year,
+                name=name,
+                date=d
+            )
+            session.add(holiday)
+
+    session.commit()
+    flash(request, f"Schedule for {year} saved.", "success")
+    return RedirectResponse(f"/admin/schedule?year={year}", status_code=303)
