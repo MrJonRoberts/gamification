@@ -163,7 +163,7 @@ async def schedule_setup_action(
 
     if not ensure_year_has_terms(year, term_numbers):
         flash(request, f"Year {year} / terms {term_numbers} not configured yet.", "warning")
-        return RedirectResponse(f"/admin/year/setup?year={year}&next=/courses/{course_id}/schedule/setup", status_code=303)
+        return RedirectResponse(f"/courses/year/setup?year={year}&next=/courses/{course_id}/schedule/setup", status_code=303)
 
     if not days:
         flash(request, "Choose at least one day of the week.", "danger")
