@@ -76,6 +76,7 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
         password = kwargs.pop("password")
         user_roles = kwargs.pop("user_roles", [])
         user_groups = kwargs.pop("user_groups", [])
+        kwargs.pop("role", None)
 
         kwargs["password_hash"] = hash_password(password)
         user, _ = get_or_create(User, email=kwargs["email"], defaults=kwargs)
@@ -90,7 +91,6 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
         email="admin@example.com",
         first_name="Ada",
         last_name="Admin",
-        role="admin",
         registered_method="site",
         password="Admin123!",
         user_roles=[roles["admin"]],
@@ -100,7 +100,6 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
         email="teacher@example.com",
         first_name="Terry",
         last_name="Teacher",
-        role="issuer",
         registered_method="site",
         password="Issuer123!",
         user_roles=[roles["issuer"]],
@@ -112,7 +111,6 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
             email="s1@example.com",
             first_name="Kai",
             last_name="Nguyen",
-            role="student",
             registered_method="site",
             password="ChangeMe123!",
             user_roles=[roles["student"]],
@@ -123,7 +121,6 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
             email="s2@example.com",
             first_name="Mia",
             last_name="Singh",
-            role="student",
             registered_method="site",
             password="ChangeMe123!",
             user_roles=[roles["student"]],
@@ -134,7 +131,6 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
             email="s3@example.com",
             first_name="Noah",
             last_name="Smith",
-            role="student",
             registered_method="site",
             password="ChangeMe123!",
             user_roles=[roles["student"]],

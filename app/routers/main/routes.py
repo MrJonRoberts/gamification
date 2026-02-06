@@ -4,7 +4,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
-from app.models import PointLedger, User
+from app.models import PointLedger, User, Role
 from app.templating import render_template
 from app.extensions import db
 
@@ -27,7 +27,8 @@ def index(
             func.coalesce(func.sum(PointLedger.delta), 0).label("points"),
         )
         .outerjoin(PointLedger, PointLedger.user_id == User.id)
-        .where(User.role == "student")
+        .join(User.roles)
+        .where(Role.name == "student")
         .group_by(User.id)
         .order_by(func.sum(PointLedger.delta).desc())
         .limit(20)

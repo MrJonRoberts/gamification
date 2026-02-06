@@ -1,7 +1,8 @@
 from __future__ import annotations
-import os, sys, runpy, importlib.util, secrets
+import os, sys, runpy, importlib.util, secrets, io, csv
+from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
@@ -255,3 +256,108 @@ def users_delete(
     session.commit()
     flash(request, "User deleted.", "success")
     return RedirectResponse("/admin/users", status_code=303)
+
+@router.get("/users/bulk-upload", response_class=HTMLResponse, name="admin.users_bulk_upload")
+def bulk_upload_form(
+    request: Request,
+    current_user: User = Depends(admin_required),
+):
+    return render_template("admin/users/bulk_upload.html", {"request": request, "current_user": current_user})
+
+@router.post("/users/bulk-upload", name="admin.users_bulk_upload_post")
+async def bulk_upload_action(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(admin_required),
+    session: Session = Depends(get_db),
+):
+    if not file.filename.lower().endswith(".csv"):
+        flash(request, "Please upload a CSV file.", "warning")
+        return RedirectResponse("/admin/users/bulk-upload", status_code=303)
+
+    try:
+        content = await file.read()
+        text = content.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(text))
+
+        # Normalize column names to lowercase/stripped
+        if reader.fieldnames:
+            reader.fieldnames = [c.strip().lower() for c in reader.fieldnames]
+
+        required = {"email", "first_name", "last_name", "role", "password_hash"}
+        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+            missing = required - set(reader.fieldnames or [])
+            flash(request, f"Missing columns: {', '.join(missing)}", "danger")
+            return RedirectResponse("/admin/users/bulk-upload", status_code=303)
+
+        created = 0
+        updated = 0
+
+        role_cache = {r.name: r for r in session.query(Role).all()}
+
+        for row in reader:
+            email = (row.get('email') or '').strip().lower()
+            if not email:
+                continue
+
+            user = session.query(User).filter_by(email=email).first()
+            is_new = False
+            if not user:
+                user = User(email=email)
+                session.add(user)
+                is_new = True
+
+            user.first_name = (row.get('first_name') or '').strip()
+            user.last_name = (row.get('last_name') or '').strip()
+            user.student_code = (row.get('student_code') or '').strip() or None
+            user.password_hash = (row.get('password_hash') or '').strip()
+            user.registered_method = (row.get('registered_method') or 'bulk').strip()
+            user.is_active = (row.get('is_active') or 'True').strip().lower() == 'true'
+            user.avatar = (row.get('avatar') or '').strip() or None
+
+            # Handle created_at if provided
+            created_at_str = row.get('created_at')
+            if created_at_str:
+                try:
+                    user.created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+
+            # Handle Role
+            role_name = (row.get('role') or '').strip().lower()
+            if role_name in role_cache:
+                role_obj = role_cache[role_name]
+                if role_obj not in user.roles:
+                    user.roles = [role_obj]
+
+            if is_new:
+                created += 1
+            else:
+                updated += 1
+
+        session.commit()
+        flash(request, f"Import complete: {created} users created, {updated} updated.", "success")
+        return RedirectResponse("/admin/users", status_code=303)
+
+    except Exception as e:
+        session.rollback()
+        flash(request, f"Error during import: {e}", "danger")
+        return RedirectResponse("/admin/users/bulk-upload", status_code=303)
+
+@router.get("/users/bulk-sample.csv", name="admin.users_bulk_sample")
+def bulk_sample_csv(current_user: User = Depends(admin_required)):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "student_code", "email", "first_name", "last_name", "role",
+        "password_hash", "registered_method", "created_at", "avatar", "is_active"
+    ])
+    writer.writerow([
+        "STU100", "student@example.com", "John", "Doe", "student",
+        "argon2$argon2id$v=19$m=65536,t=3,p=4$somehashvalue", "bulk", "2025-01-01T00:00:00", "", "True"
+    ])
+    return Response(
+        output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=users_bulk_sample.csv"}
+    )

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <h1 class="h4 mb-0">Bulk Upload Users</h1>
+        <a href="{{ url_for('admin.users_index') }}" class="btn btn-outline-secondary">Back to Users</a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <div class="mb-4">
+                    <label for="file" class="form-label fw-semibold">Choose CSV File</label>
+                    <input type="file" name="file" id="file" class="form-control" accept=".csv" required>
+                    <div class="form-text mt-2">
+                        Upload a CSV file containing user data. You can download a sample template below.
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-center gap-3">
+                    <button type="submit" class="btn btn-primary px-4">Upload and Process</button>
+                    <a href="{{ url_for('admin.users_bulk_sample') }}" class="btn btn-outline-info">
+                        <i class="bi bi-download"></i> Download Sample CSV
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="mt-5">
+        <h2 class="h6 text-uppercase fw-bold text-muted mb-3">CSV Format Details</h2>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered bg-white">
+                <thead class="table-light">
+                    <tr>
+                        <th>Field</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>email</code></td>
+                        <td>Yes</td>
+                        <td>Unique email address for the user.</td>
+                    </tr>
+                    <tr>
+                        <td><code>first_name</code></td>
+                        <td>Yes</td>
+                        <td>User's given name.</td>
+                    </tr>
+                    <tr>
+                        <td><code>last_name</code></td>
+                        <td>Yes</td>
+                        <td>User's family name.</td>
+                    </tr>
+                    <tr>
+                        <td><code>role</code></td>
+                        <td>Yes</td>
+                        <td>One of: <code>student</code>, <code>issuer</code>, <code>admin</code>.</td>
+                    </tr>
+                    <tr>
+                        <td><code>password_hash</code></td>
+                        <td>Yes</td>
+                        <td>The pre-hashed password string.</td>
+                    </tr>
+                    <tr>
+                        <td><code>student_code</code></td>
+                        <td>No</td>
+                        <td>Unique code (e.g., student ID).</td>
+                    </tr>
+                    <tr>
+                        <td><code>registered_method</code></td>
+                        <td>No</td>
+                        <td>Defaults to <code>bulk</code>.</td>
+                    </tr>
+                    <tr>
+                        <td><code>created_at</code></td>
+                        <td>No</td>
+                        <td>ISO format date string.</td>
+                    </tr>
+                    <tr>
+                        <td><code>avatar</code></td>
+                        <td>No</td>
+                        <td>URL or path to avatar image.</td>
+                    </tr>
+                    <tr>
+                        <td><code>is_active</code></td>
+                        <td>No</td>
+                        <td><code>True</code> or <code>False</code>. Defaults to <code>True</code>.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
