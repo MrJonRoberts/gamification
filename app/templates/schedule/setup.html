@@ -41,44 +41,45 @@
         </div>
       </div>
 
-      <div class="col-md-6">
-        <label class="form-label">Days of week</label>
-        <div class="d-flex flex-wrap gap-2">
-          {% set DAYS=[(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}
-          {% for val,label in DAYS %}
-            <div class="form-check form-check-inline">
-              <input class="form-check-input" type="checkbox" name="days" value="{{ val }}" id="d{{ val }}"
-                {{ 'checked' if val in [0,2,4] else '' }}>
-              <label class="form-check-label" for="d{{ val }}">{{ label }}</label>
-            </div>
-          {% endfor %}
+      <div class="col-12">
+        <label class="form-label">Days of week & Times</label>
+        <div class="table-responsive">
+          <table class="table table-bordered align-middle">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 50px;"></th>
+                <th>Day</th>
+                <th>Start Time</th>
+                <th>End Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% set DAYS=[(0,'Monday'),(1,'Tuesday'),(2,'Wednesday'),(3,'Thursday'),(4,'Friday')] %}
+              {% for val, label in DAYS %}
+                {% set wp = patterns_dict.get(val) %}
+                <tr>
+                  <td class="text-center">
+                    <input class="form-check-input" type="checkbox" name="days" value="{{ val }}" id="d{{ val }}"
+                      {{ 'checked' if (wp and wp.is_active) or (not patterns and val in [0,2,4]) else '' }}>
+                  </td>
+                  <td>
+                    <label class="form-check-label d-block" for="d{{ val }}">{{ label }}</label>
+                  </td>
+                  <td>
+                    <input type="time" class="form-control" name="start_time_{{ val }}" step="300"
+                      value="{{ wp.start_time.strftime('%H:%M') if wp and wp.start_time else '09:00' }}">
+                  </td>
+                  <td>
+                    <input type="time" class="form-control" name="end_time_{{ val }}" step="300"
+                      value="{{ wp.end_time.strftime('%H:%M') if wp and wp.end_time else '10:00' }}">
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-      </div>
-
-      <div class="col-md-3">
-        <label class="form-label">Start time</label>
-        <input type="time" class="form-control" name="start_time" value="09:00" step="300">
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">End time</label>
-        <input type="time" class="form-control" name="end_time" value="10:00" step="300">
       </div>
     </div>
-
-    {% if patterns and patterns|length %}
-      <div class="mt-3">
-        <div class="small text-muted mb-1">Existing weekly pattern:</div>
-        <div class="d-flex flex-wrap gap-2">
-          {% set D = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
-          {% for p in patterns %}
-            <span class="badge bg-light text-body">
-              {{ D[p.day_of_week] }} {{ p.start_time.strftime("%H:%M") if p.start_time }}–{{ p.end_time.strftime("%H:%M") if p.end_time }}
-            </span>
-          {% endfor %}
-        </div>
-        <div class="form-text">Saving will update these values.</div>
-      </div>
-    {% endif %}
 
     <div class="mt-3 d-flex justify-content-end gap-2">
       <a class="btn btn-outline-secondary" href="{{ url_for('schedule.course_schedule', course_id=course.id) }}">Cancel</a>
