@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from app.extensions import db
-from app.models import AcademicYear, Term, User
+from app.models import AcademicYear, Group, Role, Term, User
 
 from seeds.utils import get_or_create
 
@@ -51,14 +51,39 @@ TERM_DATE_FIXTURES: List[Dict] = [
 ]
 
 
-def seed_users() -> Dict[str, User]:
-    def build_user(**kwargs: str) -> User:
+def seed_roles() -> Dict[str, Role]:
+    roles = {}
+    for role_name in ["admin", "issuer", "student"]:
+        role, _ = get_or_create(Role, name=role_name)
+        roles[role_name] = role
+    db.session.commit()
+    return roles
+
+
+def seed_groups() -> Dict[str, Group]:
+    groups = {}
+    for group_name in ["Year 10", "Year 11", "Year 12", "Staff"]:
+        group, _ = get_or_create(Group, name=group_name)
+        groups[group_name] = group
+    db.session.commit()
+    return groups
+
+
+def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, User]:
+    def build_user(**kwargs: Any) -> User:
         from app.security import hash_password
+
         password = kwargs.pop("password")
+        user_roles = kwargs.pop("user_roles", [])
+        user_groups = kwargs.pop("user_groups", [])
+
         kwargs["password_hash"] = hash_password(password)
         user, _ = get_or_create(User, email=kwargs["email"], defaults=kwargs)
         for key, value in kwargs.items():
             setattr(user, key, value)
+
+        user.roles = user_roles
+        user.groups = user_groups
         return user
 
     admin = build_user(
@@ -68,6 +93,8 @@ def seed_users() -> Dict[str, User]:
         role="admin",
         registered_method="site",
         password="Admin123!",
+        user_roles=[roles["admin"]],
+        user_groups=[groups["Staff"]],
     )
     issuer = build_user(
         email="teacher@example.com",
@@ -76,6 +103,8 @@ def seed_users() -> Dict[str, User]:
         role="issuer",
         registered_method="site",
         password="Issuer123!",
+        user_roles=[roles["issuer"]],
+        user_groups=[groups["Staff"]],
     )
     students = [
         build_user(
@@ -86,6 +115,8 @@ def seed_users() -> Dict[str, User]:
             role="student",
             registered_method="site",
             password="ChangeMe123!",
+            user_roles=[roles["student"]],
+            user_groups=[groups["Year 10"]],
         ),
         build_user(
             student_code="STU002",
@@ -95,6 +126,8 @@ def seed_users() -> Dict[str, User]:
             role="student",
             registered_method="site",
             password="ChangeMe123!",
+            user_roles=[roles["student"]],
+            user_groups=[groups["Year 11"]],
         ),
         build_user(
             student_code="STU003",
@@ -104,6 +137,8 @@ def seed_users() -> Dict[str, User]:
             role="student",
             registered_method="site",
             password="ChangeMe123!",
+            user_roles=[roles["student"]],
+            user_groups=[groups["Year 12"]],
         ),
     ]
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone, timezone
+from datetime import datetime, timezone
 from app.extensions import db
 from app.security import hash_password, verify_password
 
