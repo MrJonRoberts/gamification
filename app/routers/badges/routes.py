@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
 from app.extensions import db
-from app.models import Badge, BadgeGrant, User, Award, AwardBadge
+from app.models import Badge, BadgeGrant, User, Role, Award, AwardBadge
 from app.services.images import (
     allowed_image,
     open_image,
@@ -190,7 +190,13 @@ def grant_form(
     if not badge:
         raise HTTPException(status_code=404, detail="Badge not found")
 
-    students = session.query(User).filter_by(role="student").order_by(User.last_name, User.first_name).all()
+    students = (
+        session.query(User)
+        .join(User.roles)
+        .filter(Role.name == "student")
+        .order_by(User.last_name, User.first_name)
+        .all()
+    )
     return render_template("badges/grant.html", {"request": request, "badge": badge, "students": students, "current_user": current_user})
 
 @router.post("/grant/{badge_id}", name="badges.grant_post")

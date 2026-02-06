@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
-from app.models import User
+from app.models import User, Role
 from app.security import create_access_token, verify_and_update_password
 from app.templating import render_template
 from app.utils import flash
@@ -92,11 +92,15 @@ def register_action(
         email=email.lower().strip(),
         first_name=first_name.strip(),
         last_name=last_name.strip(),
-        role=role,
         registered_method="site",
     )
     user.set_password(password)
     session.add(user)
+
+    role_obj = session.query(Role).filter_by(name=role).first()
+    if role_obj:
+        user.roles.append(role_obj)
+
     session.commit()
     flash(request, "User registered.", "success")
     return RedirectResponse("/", status_code=303)

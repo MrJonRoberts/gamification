@@ -15,6 +15,7 @@ from app.dependencies import get_current_user, get_db, require_user, AnonymousUs
 from app.extensions import db
 from app.models import (
     User,
+    Role,
     Course,
     Award,
     BadgeGrant,
@@ -74,7 +75,8 @@ def list_students(
     """
     students = (
         session.query(User)
-        .filter_by(role="student")
+        .join(User.roles)
+        .filter(Role.name == "student")
         .order_by(User.last_name, User.first_name)
         .all()
     )
@@ -259,6 +261,7 @@ async def create_student_action(
 
         created = enrolled = skipped = course_not_found = 0
         saved_files: list[str] = []
+        student_role = session.query(Role).filter_by(name="student").first()
 
         try:
             for _, row in df.iterrows():
@@ -280,10 +283,11 @@ async def create_student_action(
                         email=u_email,
                         first_name=u_first,
                         last_name=u_last,
-                        role="student",
                         registered_method="bulk",
                     )
                     u.set_password("ChangeMe123!")
+                    if student_role:
+                        u.roles.append(student_role)
                     session.add(u)
                     session.flush()
                     created += 1
@@ -340,7 +344,6 @@ async def create_student_action(
             return render_template("students/form.html", {"request": request, "current_user": current_user})
 
         u = User(
-            role="student",
             student_code=(student_code or "").strip() or None,
             email=(email or "").lower().strip(),
             first_name=(first_name or "").strip(),
@@ -368,6 +371,10 @@ async def create_student_action(
             "avatars",
             u.email or u.student_code or f"{u.first_name}-{u.last_name}",
         )
+
+        student_role = session.query(Role).filter_by(name="student").first()
+        if student_role:
+            u.roles.append(student_role)
 
         session.add(u)
         session.commit()
