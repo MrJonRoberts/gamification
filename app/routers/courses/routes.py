@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
-from app.models import Course, User
+from app.models import Course, User, Role
 from app.templating import render_template
 from app.utils import flash
 
@@ -54,7 +54,13 @@ def enroll_form(
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
 
-    students = session.query(User).filter_by(role="student").order_by(User.last_name, User.first_name).all()
+    students = (
+        session.query(User)
+        .join(User.roles)
+        .filter(Role.name == "student")
+        .order_by(User.last_name, User.first_name)
+        .all()
+    )
     enrolled_students = sorted(course.students, key=lambda s: (s.last_name.lower(), s.first_name.lower()))
 
     return render_template(
@@ -120,11 +126,13 @@ async def enroll_action(
                 email=email.strip().lower(),
                 first_name=first_name.strip(),
                 last_name=last_name.strip(),
-                role="student",
                 registered_method="site",
             )
             u.set_password("ChangeMe123!")
             session.add(u)
+            student_role = session.query(Role).filter_by(name="student").first()
+            if student_role:
+                u.roles.append(student_role)
             session.flush()
 
         if u not in course.students:
@@ -160,6 +168,7 @@ async def enroll_action(
             return RedirectResponse(f"/courses/{course_id}/enroll", status_code=303)
 
         created, enrolled, skipped = 0, 0, 0
+        student_role = session.query(Role).filter_by(name="student").first()
         for _, row in df.iterrows():
             u_email = str(row.get("email", "")).strip().lower()
             u_first = str(row.get("first_name", "")).strip()
@@ -177,10 +186,11 @@ async def enroll_action(
                     email=u_email,
                     first_name=u_first,
                     last_name=u_last,
-                    role="student",
                     registered_method="bulk",
                 )
                 u.set_password("ChangeMe123!")
+                if student_role:
+                    u.roles.append(student_role)
                 session.add(u)
                 session.flush()
                 created += 1

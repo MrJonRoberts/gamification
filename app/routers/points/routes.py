@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
-from app.models import User, PointLedger, Course
+from app.models import User, Role, PointLedger, Course
 from app.templating import render_template
 from app.utils import flash
 
@@ -16,7 +16,13 @@ def adjust_form(
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
-    students = session.query(User).filter_by(role="student").order_by(User.last_name).all()
+    students = (
+        session.query(User)
+        .join(User.roles)
+        .filter(Role.name == "student")
+        .order_by(User.last_name)
+        .all()
+    )
     courses = session.query(Course).order_by(Course.year.desc()).all()
     return render_template(
         "points/adjust.html",

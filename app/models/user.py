@@ -15,7 +15,6 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default="student")  # student|issuer|admin
     password_hash = db.Column(db.String(255), nullable=False)
     registered_method = db.Column(db.String(20), nullable=False, default="site")  # site|bulk
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
@@ -60,6 +59,25 @@ class User(db.Model):
     def full_name(self):
         """Returns the user's full name."""
         return f"{self.first_name} {self.last_name}"
+
+    @property
+    def role(self):
+        """Returns the user's primary role name."""
+        if self.roles:
+            return self.roles[0].name
+        return "student"
+
+    @role.setter
+    def role(self, role_name):
+        """Sets the user's role if a session is available."""
+        from sqlalchemy.orm import object_session
+        session = object_session(self)
+        if session:
+            r = session.query(Role).filter_by(name=role_name).first()
+            if r:
+                self.roles = [r]
+        # If no session, we can't easily set it here without more complexity.
+        # But most creation paths now handle roles explicitly.
 
     @property
     def is_authenticated(self) -> bool:
