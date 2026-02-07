@@ -17,3 +17,25 @@ class SeatingPosition(db.Model):
 
     course = db.relationship("Course", backref=db.backref("seating_positions", cascade="all, delete-orphan"))
     user = db.relationship("User", backref="seating_positions")
+
+
+class SeatingLayout(db.Model):
+    __tablename__ = "seating_layouts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.Integer, db.ForeignKey("courses.id"), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    data = db.Column(db.Text, nullable=False, default="{}")
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("course_id", "name", name="uq_seating_layout_course_name"),
+    )
+
+    course = db.relationship("Course", backref=db.backref("seating_layouts", cascade="all, delete-orphan"))

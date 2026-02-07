@@ -5,7 +5,7 @@ from .badge import Badge, BadgeGrant
 from .award import Award, AwardBadge, award_progress
 from .point_ledger import PointLedger, user_total_points
 from .behaviour import Behaviour
-from .seating import SeatingPosition
+from .seating import SeatingPosition, SeatingLayout
 from .schedule import AcademicYear, Term, PublicHoliday, WeeklyPattern, Lesson, LessonStatus
 from .attendance import Attendance, AttendanceStatus
 
@@ -17,7 +17,7 @@ __all__ = [
     # helpers
     "award_progress", "user_total_points",
     # behaviour & seating
-    "Behaviour", "SeatingPosition",
+    "Behaviour", "SeatingPosition", "SeatingLayout",
     # schedule & attendance
     "AcademicYear", "Term", "PublicHoliday", "WeeklyPattern", "Lesson", "LessonStatus",
     "Attendance", "AttendanceStatus",
