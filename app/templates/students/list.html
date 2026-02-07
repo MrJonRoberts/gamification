@@ -74,7 +74,7 @@
           <input type="hidden" name="user_id" value="{{ s.id }}">
           <select class="form-select form-select-sm" name="course_id" required>
             {% if courses %}
-              {% for c in courses %}<option value="{{ c.id }}">{{ c.name }} {{ c.semester }}{{ c.year }}</option>{% endfor %}
+              {% for c in courses %}<option value="{{ c.id }}">{{ c.display_name }}</option>{% endfor %}
             {% else %}
               <option value="" disabled>No courses available</option>
             {% endif %}

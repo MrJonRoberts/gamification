@@ -33,7 +33,7 @@
       <td>{{ b.note or '—' }}</td>
       <td>
         {% if b.course %}
-          {{ b.course.name }} {{ b.course.semester }}{{ b.course.year }}
+          {{ b.course.display_name }}
         {% else %}
           <span class="text-muted">—</span>
         {% endif %}
