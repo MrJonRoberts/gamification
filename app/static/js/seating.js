@@ -40,6 +40,15 @@
         return payload;
     }
 
+    async function apiGetJson(url) {
+        const resp = await fetch(url, {headers: token ? {'X-CSRFToken': token, 'X-CSRF-Token': token} : {}});
+        const payload = await resp.json().catch(() => null);
+        if (!resp.ok) {
+            throw new Error((payload && payload.error) || `Request failed (${resp.status})`);
+        }
+        return payload;
+    }
+
     function applyPositions(positions) {
         const byId = new Map((positions || []).map(p => [String(p.user_id), p]));
         document.querySelectorAll('.seat-card').forEach((card) => {
@@ -109,8 +118,7 @@
     async function refreshLayouts() {
         if (!layoutSelect || !cfg.layoutsListUrl) return;
         try {
-            const resp = await fetch(cfg.layoutsListUrl, {headers});
-            const layouts = await resp.json();
+            const layouts = await apiGetJson(cfg.layoutsListUrl);
             if (!Array.isArray(layouts)) return;
 
             const previous = layoutSelect.value;
@@ -121,7 +129,9 @@
                 opt.textContent = layout.name;
                 layoutSelect.appendChild(opt);
             });
-            if (previous) layoutSelect.value = previous;
+            if (previous && Array.from(layoutSelect.options).some(o => o.value === previous)) {
+                layoutSelect.value = previous;
+            }
         } catch (err) {
             console.error('Failed to load layouts', err);
         }
@@ -214,7 +224,8 @@
         });
 
         try {
-            await apiPost(`/courses/${cfg.courseId}/api/seating/bulk_lock`, {locked: flag});
+            const url = cfg.bulkLockUrl || `/courses/${cfg.courseId}/api/seating/bulk_lock`;
+            await apiPost(url, {locked: flag});
         } catch (err) {
             console.error('Bulk lock failed', err);
         }

@@ -77,10 +77,11 @@
     window.SEATING_CONFIG = {
         courseId: {{ course.id }},
         behaviourAdjustBase: "{{ url_for('seating.api_behaviour_adjust', course_id=course.id, user_id=0) | replace('0/adjust', '') }}",
-        seatingUpdateBase: "{{ url_for('seating.api_update_position', course_id=course.id, user_id=0) | replace('/0', '/') }}",
+        seatingUpdateBase: "{{ url_for('seating.api_update_position', course_id=course.id, user_id=0) | replace('/students/0', '/students/') }}",
         layoutsListUrl: "{{ url_for('seating.api_layouts_list', course_id=course.id) }}",
         layoutsSaveUrl: "{{ url_for('seating.api_layouts_save', course_id=course.id) }}",
-        layoutsLoadBase: "{{ url_for('seating.api_layouts_load', course_id=course.id, layout_id=0) | replace('/0/load', '/') }}"
+        layoutsLoadBase: "{{ url_for('seating.api_layouts_load', course_id=course.id, layout_id=0) | replace('/0/load', '/') }}",
+        bulkLockUrl: "{{ url_for('seating.api_bulk_lock', course_id=course.id) }}"
     };
 </script>
 <script src="{{ url_for('static', filename='js/seating.js') }}"></script>

@@ -90,7 +90,7 @@ def api_all_positions(
     return [_as_position_payload(r) for r in rows]
 
 
-@router.post("/{course_id}/api/seating/{user_id}", name="seating.api_update_position")
+@router.post("/{course_id}/api/seating/students/{user_id}", name="seating.api_update_position")
 def api_update_position(
     course_id: int,
     user_id: int,
@@ -156,7 +156,14 @@ def api_layouts_list(
         .order_by(SeatingLayout.name.asc())
         .all()
     )
-    return [{"id": layout.id, "name": layout.name, "updated_at": layout.updated_at.isoformat()} for layout in layouts]
+    return [
+        {
+            "id": layout.id,
+            "name": layout.name,
+            "updated_at": layout.updated_at.isoformat() if layout.updated_at else None,
+        }
+        for layout in layouts
+    ]
 
 
 @router.post("/{course_id}/api/seating/layouts", name="seating.api_layouts_save")
