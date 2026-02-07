@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any, Dict, List
 
 from app.extensions import db
-from app.models import AcademicYear, Group, Role, Term, User
+from app.models import AcademicYear, Group, Role, Term, User, House, Homeroom
 
 from seeds.utils import get_or_create
 
@@ -69,7 +69,30 @@ def seed_groups() -> Dict[str, Group]:
     return groups
 
 
-def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, User]:
+def seed_houses() -> Dict[str, House]:
+    houses = {}
+    for name in ["Kennedy", "Dalrymple", "Leichhardt", "Mulligan"]:
+        h, _ = get_or_create(House, name=name)
+        houses[name] = h
+    db.session.commit()
+    return houses
+
+
+def seed_homerooms() -> Dict[str, Homeroom]:
+    homerooms = {}
+    for name in ["KCGR", "DCSE", "KHMU", "LMAN"]:
+        hr, _ = get_or_create(Homeroom, name=name)
+        homerooms[name] = hr
+    db.session.commit()
+    return homerooms
+
+
+def seed_users(
+    roles: Dict[str, Role],
+    groups: Dict[str, Group],
+    houses: Dict[str, House] = None,
+    homerooms: Dict[str, Homeroom] = None
+) -> Dict[str, User]:
     def build_user(**kwargs: Any) -> User:
         from app.security import hash_password
 
@@ -115,6 +138,8 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
             password="ChangeMe123!",
             user_roles=[roles["student"]],
             user_groups=[groups["Year 10"]],
+            house=houses["Kennedy"] if houses else None,
+            homeroom=homerooms["KCGR"] if homerooms else None,
         ),
         build_user(
             student_code="STU002",
@@ -125,6 +150,8 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
             password="ChangeMe123!",
             user_roles=[roles["student"]],
             user_groups=[groups["Year 11"]],
+            house=houses["Dalrymple"] if houses else None,
+            homeroom=homerooms["DCSE"] if homerooms else None,
         ),
         build_user(
             student_code="STU003",
@@ -135,6 +162,8 @@ def seed_users(roles: Dict[str, Role], groups: Dict[str, Group]) -> Dict[str, Us
             password="ChangeMe123!",
             user_roles=[roles["student"]],
             user_groups=[groups["Year 12"]],
+            house=houses["Leichhardt"] if houses else None,
+            homeroom=homerooms["LMAN"] if homerooms else None,
         ),
     ]
 

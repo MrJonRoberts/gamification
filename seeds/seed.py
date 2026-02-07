@@ -3,6 +3,8 @@ from seeds.prep_test_data import seed_badges_and_awards, seed_courses
 from seeds.setup_data import (
     seed_academic_years,
     seed_groups,
+    seed_houses,
+    seed_homerooms,
     seed_roles,
     seed_users,
 )
@@ -16,7 +18,9 @@ def main():
         seed_academic_years()
         roles = seed_roles()
         groups = seed_groups()
-        users = seed_users(roles, groups)
+        houses = seed_houses()
+        homerooms = seed_homerooms()
+        users = seed_users(roles, groups, houses, homerooms)
         seed_courses(users)
         seed_badges_and_awards(users)
 
