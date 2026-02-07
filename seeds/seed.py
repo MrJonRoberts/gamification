@@ -1,28 +1,15 @@
-from app.extensions import db
-from seeds.prep_test_data import seed_badges_and_awards, seed_courses
-from seeds.setup_data import (
-    seed_academic_years,
-    seed_groups,
-    seed_roles,
-    seed_users,
-)
+from pathlib import Path
+import sys
+
+ROOT_PATH = Path(__file__).resolve().parents[1]
+if str(ROOT_PATH) not in sys.path:
+    sys.path.insert(0, str(ROOT_PATH))
+
+from seeds.manage_data import run_reset_and_seed
 
 
-def main():
-    try:
-        db.drop_all()
-        db.create_all()
-
-        seed_academic_years()
-        roles = seed_roles()
-        groups = seed_groups()
-        users = seed_users(roles, groups)
-        seed_courses(users)
-        seed_badges_and_awards(users)
-
-        print("Database seeded. Admin login: admin@example.com / Admin123!")
-    finally:
-        db.remove_session()
+def main() -> None:
+    run_reset_and_seed()
 
 
 if __name__ == '__main__':

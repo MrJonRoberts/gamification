@@ -46,11 +46,24 @@ The application uses a custom JWT-based authentication system.
 - The `get_current_user` dependency validates the token and retrieves the user from the database.
 - Permissions are handled via `require_user` and `require_role` dependencies.
 
-## (Optional) Seed the database
+## (Optional) Seed and manage database data
 
-If you want sample data, run:
+### Full reset + seed (legacy behavior)
 ```bash
 python seeds/seed.py
+# or
+python seeds/manage_data.py reset-and-seed
 ```
 
-This resets the database and prints the default admin credentials.
+### Scriptable data-management actions
+```bash
+python seeds/manage_data.py reset-database
+python seeds/manage_data.py reset-admin-users
+python seeds/manage_data.py seed-test-data
+python seeds/manage_data.py delete-test-data
+```
+
+- `reset-database` backs up the SQLite DB into `backups/`, deletes it, and recreates tables.
+- `reset-admin-users` re-creates default admin/issuer users.
+- `seed-test-data` seeds sample students, courses, badges, and awards.
+- `delete-test-data` removes the seeded test users/courses/badges/awards.
