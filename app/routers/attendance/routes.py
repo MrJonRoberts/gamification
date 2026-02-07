@@ -24,15 +24,41 @@ STATUS_META = {
 }
 STATUS_UI_NOT_SET = {"label": "Not set", "icon": "fa-circle-minus", "class": "att-NOT_SET"}
 
+DB_TO_UI_STATUS = {
+    "PRESENT": "present",
+    "ABSENT": "absent",
+    "LATE": "late",
+    "SCHOOL_APPROVED_ABSENT": "excused",
+    "NO_CLASS_TODAY": "unknown",
+}
+
+UI_TO_DB_STATUS = {
+    "present": "PRESENT",
+    "absent": "ABSENT",
+    "late": "LATE",
+    "excused": "SCHOOL_APPROVED_ABSENT",
+}
+
+
+def _to_ui_status(db_status: str | None) -> str:
+    if not db_status:
+        return "unknown"
+    return DB_TO_UI_STATUS.get(db_status, "unknown")
+
+
+def _new_lesson_count_bucket() -> dict[str, int]:
+    return {"present": 0, "absent": 0, "late": 0, "excused": 0, "unknown": 0}
+
 def _to_enum(code: str):
     if not code:
         return None
+    normalized = UI_TO_DB_STATUS.get(code.strip().lower())
+    if normalized:
+        return normalized
+
+    # Backward-compatible fallback for older clients sending DB-like values.
     s = code.strip().upper()
-    if s == "EXCUSED":
-        s = "SCHOOL_APPROVED_ABSENT"
-    # Map back to enum values
-    valid = {e.value for e in AttendanceStatus}
-    if s in valid:
+    if s in {AttendanceStatus.PRESENT, AttendanceStatus.ABSENT, AttendanceStatus.LATE, AttendanceStatus.SCHOOL_APPROVED_ABSENT, AttendanceStatus.NO_CLASS_TODAY}:
         return s
     return None
 
@@ -180,10 +206,9 @@ def course_attendance(
         .filter(Attendance.student_id.in_(student_ids) if student_ids else True)
         .all()
     )
-    att_map = {(a.student_id, a.lesson_id): (a.status or None) for a in att_rows}
+    att_map = {(a.student_id, a.lesson_id): _to_ui_status(a.status) for a in att_rows}
 
-    base = {"PRESENT": 0, "ABSENT": 0, "LATE": 0, "SCHOOL_APPROVED_ABSENT": 0, "NO_CLASS_TODAY": 0}
-    counts = {lid: dict(base) for lid in lesson_ids}
+    counts = {lid: _new_lesson_count_bucket() for lid in lesson_ids}
     for (sid, lid), status in att_map.items():
         if status and lid in counts and status in counts[lid]:
             counts[lid][status] += 1
@@ -197,10 +222,10 @@ def course_attendance(
             s = att_map.get((student_id, lid))
             if not s:
                 continue
-            if s == "NO_CLASS_TODAY":
+            if s == "unknown":
                 continue
             denom += 1
-            if s in {"PRESENT", "LATE"}:
+            if s in {"present", "late"}:
                 present_like += 1
         return (present_like / denom) if denom else 0.0
 
@@ -348,11 +373,11 @@ def api_summary(
     ).filter(Lesson.course_id == course.id, Attendance.lesson_id.in_(lesson_ids)
     ).group_by(Attendance.lesson_id, Attendance.status).all()
 
-    base = {"PRESENT": 0, "ABSENT": 0, "LATE": 0, "SCHOOL_APPROVED_ABSENT": 0, "NO_CLASS_TODAY": 0}
-    counts = {lid: dict(base) for lid in lesson_ids}
+    counts = {lid: _new_lesson_count_bucket() for lid in lesson_ids}
     for lid, status, cnt in raw:
-        if status in counts[lid]:
-            counts[lid][status] = int(cnt)
+        ui_status = _to_ui_status(status)
+        if ui_status in counts[lid]:
+            counts[lid][ui_status] = int(cnt)
 
     student_ids = [uid for (uid,) in session.query(Enrollment.c.user_id).filter(Enrollment.c.course_id == course.id).all()]
     rows = session.query(Attendance).join(Lesson, Lesson.id == Attendance.lesson_id).filter(
@@ -368,8 +393,8 @@ def api_summary(
     student_ratio = {}
     for sid in student_ids:
         statuses = by_user.get(sid, [])
-        present_like = sum(1 for s in statuses if s in {"PRESENT", "LATE"})
-        denom = sum(1 for s in statuses if s and s != "NO_CLASS_TODAY")
+        present_like = sum(1 for s in statuses if _to_ui_status(s) in {"present", "late"})
+        denom = sum(1 for s in statuses if _to_ui_status(s) != "unknown")
         student_ratio[sid] = (present_like / denom) if denom else 0.0
 
     return {"lessons": counts, "student_ratio": student_ratio}
