@@ -21,7 +21,7 @@
       <select class="form-select" id="course_id" name="course_id">
         <option value="0">—</option>
         {% for c in courses %}
-          <option value="{{ c.id }}">{{ c.name }} {{ c.semester }}{{ c.year }}</option>
+          <option value="{{ c.id }}">{{ c.display_name }}</option>
         {% endfor %}
       </select>
     </div>

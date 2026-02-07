@@ -1,10 +1,10 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
+from app.dependencies import get_db, require_user, AnonymousUser
 from app.models import Behaviour, PointLedger, User, Course
 from app.templating import render_template
 
@@ -30,7 +30,7 @@ def add_behaviour(
         return JSONResponse({"ok": False, "error": "Student and non-zero points are required"}, status_code=400)
 
     user = session.get(User, user_id)
-    if not user:
+    if not user or user.role != "student":
         return JSONResponse({"ok": False, "error": "Student not found"}, status_code=404)
 
     course = session.get(Course, course_id) if course_id else None
@@ -67,6 +67,10 @@ def list_behaviours(
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
+    student = session.get(User, user_id)
+    if not student or student.role != "student":
+        return HTMLResponse('<div class="text-muted">Student not found.</div>', status_code=404)
+
     # Base query
     base = session.query(Behaviour).filter(Behaviour.user_id == user_id)
     if course_id:

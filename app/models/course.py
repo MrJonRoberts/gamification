@@ -23,3 +23,8 @@ class Course(db.Model):
         db.Index("ix_course_term", "year", "semester"),
         db.Index("ix_course_created_at", "created_at"),
     )
+
+    @property
+    def display_name(self) -> str:
+        """Human-readable course label used in templates and flash messages."""
+        return f"{self.name} {self.semester} {self.year}"

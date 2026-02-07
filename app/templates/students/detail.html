@@ -62,7 +62,7 @@
 <h2 class="h6 mt-4">Enrolled Courses</h2>
 <ul class="mb-0">
   {% for c in student.courses %}
-    <li><a href="{{ url_for('courses.students_in_course', course_id=c.id) }}">{{ c.name }} {{ c.semester }}{{ c.year }}</a></li>
+    <li><a href="{{ url_for('courses.students_in_course', course_id=c.id) }}">{{ c.display_name }}</a></li>
   {% else %}
     <li class="text-muted">Not enrolled in any courses.</li>
   {% endfor %}

@@ -3,7 +3,6 @@ import io
 import os
 import re
 import zipfile
-from typing import Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
@@ -11,8 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
-from app.extensions import db
+from app.dependencies import get_db, require_user, AnonymousUser
 from app.models import (
     User,
     Role,
@@ -37,6 +35,20 @@ router = APIRouter(prefix="/students", tags=["students"])
 
 def _has_role(user: User | AnonymousUser, *roles: str) -> bool:
     return getattr(user, "is_authenticated", False) and getattr(user, "role", "") in roles
+
+def _student_or_redirect(session: Session, request: Request, user_id: int) -> User | RedirectResponse:
+    student = session.get(User, user_id)
+    if not student or student.role != "student":
+        flash(request, "Not a student record.", "warning")
+        return RedirectResponse("/students/", status_code=303)
+    return student
+
+
+def _admin_required_or_redirect(user: User | AnonymousUser, request: Request) -> RedirectResponse | None:
+    if _has_role(user, "admin"):
+        return None
+    flash(request, "Admin access required.", "danger")
+    return RedirectResponse("/students/", status_code=303)
 
 def _find_course_from_text(session: Session, text: str | None) -> Course | None:
     if not text:
@@ -175,13 +187,13 @@ def quick_enroll(
         session.commit()
         flash(
             request,
-            f"Enrolled {student.first_name} {student.last_name} in {course.name} {course.semester}{course.year}.",
+            f"Enrolled {student.first_name} {student.last_name} in {course.display_name}.",
             "success",
         )
     else:
         flash(
             request,
-            f"{student.first_name} {student.last_name} is already enrolled in {course.name} {course.semester}{course.year}.",
+            f"{student.first_name} {student.last_name} is already enrolled in {course.display_name}.",
             "info",
         )
     return RedirectResponse("/students/", status_code=303)
@@ -246,16 +258,18 @@ async def create_student_action(
         has_image = "image_name" in df.columns
 
         icon_map: dict[str, str] = {}
-        img_zip_bytes: bytes | None = None
+        zip_file: zipfile.ZipFile | None = None
         if images_zip and images_zip.filename and images_zip.filename.lower().endswith(".zip"):
             try:
                 img_zip_bytes = await images_zip.read()
-                with zipfile.ZipFile(io.BytesIO(img_zip_bytes)) as zf:
-                    for n in zf.namelist():
-                        base = os.path.basename(n)
-                        if base and allowed_image(base):
-                            icon_map[base.lower()] = n
+                zip_file = zipfile.ZipFile(io.BytesIO(img_zip_bytes))
+                for n in zip_file.namelist():
+                    base = os.path.basename(n)
+                    if base and allowed_image(base):
+                        icon_map[base.lower()] = n
             except Exception as e:
+                if zip_file:
+                    zip_file.close()
                 flash(request, f"Could not read images ZIP: {e}", "danger")
                 return RedirectResponse("/students/create#bulk", status_code=303)
 
@@ -296,13 +310,12 @@ async def create_student_action(
                         u.student_code = u_code
 
                 pil = None
-                if image_name and img_zip_bytes:
+                if image_name and zip_file:
                     try:
-                        with zipfile.ZipFile(io.BytesIO(img_zip_bytes)) as zf:
-                            member = icon_map.get(os.path.basename(image_name).lower())
-                            if member:
-                                with zf.open(member) as fp:
-                                    pil = open_image(fp)
+                        member = icon_map.get(os.path.basename(image_name).lower())
+                        if member:
+                            with zip_file.open(member) as fp:
+                                pil = open_image(fp)
                     except Exception:
                         pil = None
                 if pil is None:
@@ -324,6 +337,8 @@ async def create_student_action(
                         course_not_found += 1
 
             session.commit()
+            if zip_file:
+                zip_file.close()
             msg = f"Bulk upload complete: {created} created, {enrolled} enrolments, {skipped} skipped"
             if course_not_found:
                 msg += f", {course_not_found} unknown course"
@@ -332,6 +347,8 @@ async def create_student_action(
 
         except Exception as e:
             session.rollback()
+            if zip_file:
+                zip_file.close()
             for web_path in saved_files:
                 remove_web_path(web_path)
             flash(request, f"Bulk upload failed. No changes were saved. Details: {e}", "danger")
@@ -343,9 +360,15 @@ async def create_student_action(
             flash(request, "Email, First Name, and Last Name are required.", "danger")
             return render_template("students/form.html", {"request": request, "current_user": current_user})
 
+        normalized_email = (email or "").lower().strip()
+        existing = session.query(User).filter(User.email == normalized_email).first()
+        if existing:
+            flash(request, "A user with that email already exists.", "warning")
+            return render_template("students/form.html", {"request": request, "current_user": current_user})
+
         u = User(
             student_code=(student_code or "").strip() or None,
-            email=(email or "").lower().strip(),
+            email=normalized_email,
             first_name=(first_name or "").strip(),
             last_name=(last_name or "").strip(),
             registered_method="site",
@@ -388,14 +411,13 @@ def edit_student_form(
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
-    if not _has_role(current_user, "admin"):
-        flash(request, "Admin access required.", "danger")
-        return RedirectResponse("/students/", status_code=303)
+    admin_redirect = _admin_required_or_redirect(current_user, request)
+    if admin_redirect:
+        return admin_redirect
 
-    student = session.get(User, user_id)
-    if not student or student.role != "student":
-        flash(request, "Not a student record.", "warning")
-        return RedirectResponse("/students/", status_code=303)
+    student = _student_or_redirect(session, request, user_id)
+    if isinstance(student, RedirectResponse):
+        return student
 
     return render_template("students/edit.html", {"request": request, "student": student, "current_user": current_user})
 
@@ -411,14 +433,13 @@ async def edit_student_action(
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
-    if not _has_role(current_user, "admin"):
-        flash(request, "Admin access required.", "danger")
-        return RedirectResponse("/students/", status_code=303)
+    admin_redirect = _admin_required_or_redirect(current_user, request)
+    if admin_redirect:
+        return admin_redirect
 
-    student = session.get(User, user_id)
-    if not student or student.role != "student":
-        flash(request, "Not a student record.", "warning")
-        return RedirectResponse("/students/", status_code=303)
+    student = _student_or_redirect(session, request, user_id)
+    if isinstance(student, RedirectResponse):
+        return student
 
     new_email = email.strip().lower()
     clash = session.query(User).filter(User.email == new_email, User.id != student.id).first()
