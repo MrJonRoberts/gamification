@@ -1,12 +1,14 @@
 from __future__ import annotations
 import io
+from typing import Optional
+from datetime import datetime
 import pandas as pd
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
-from app.models import Course, User, Role
+from app.models import Course, User, Role, House, Homeroom, Group
 from app.templating import render_template
 from app.utils import flash
 
@@ -29,18 +31,150 @@ def create_course_form(
     return render_template("courses/form.html", {"request": request, "current_user": current_user})
 
 @router.post("/create", name="courses.create_course_post")
-def create_course_action(
+async def create_course_action(
     request: Request,
-    name: str = Form(...),
-    semester: str = Form(...),
-    year: int = Form(...),
+    name: Optional[str] = Form(None),
+    semester: str = Form("S1"),
+    year: Optional[int] = Form(None),
+    file: UploadFile = File(None),
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
-    c = Course(name=name.strip(), semester=semester, year=year)
-    session.add(c)
+    course_name = (name or "").strip()
+    if not year:
+        year = datetime.now(datetime.timezone.utc).year
+
+    students_to_enroll = []
+
+    if file and file.filename:
+        if not file.filename.lower().endswith(".xlsx"):
+            flash(request, "Please upload an XLSX file for TASS format.", "warning")
+            return RedirectResponse("/courses/create", status_code=303)
+
+        try:
+            content = await file.read()
+            df_full = pd.read_excel(io.BytesIO(content), header=None)
+
+            # Detect TASS format
+            is_tass = False
+            if len(df_full) > 2:
+                row0 = str(df_full.iloc[0, 0]).upper()
+                if "TRINITY ANGLICAN SCHOOL" in row0 and "CLASS LISTING" in row0:
+                    is_tass = True
+
+            if is_tass:
+                # Course Name from Row 3 (index 2) if not provided
+                if not course_name:
+                    course_name = str(df_full.iloc[2, 0]).strip()
+
+                # Headers are in Row 2 (index 1)
+                df = pd.read_excel(io.BytesIO(content), header=1)
+                # Skip the class info row which is now the first row of data
+                df = df.iloc[1:]
+                # Drop summary rows
+                df = df[df['Code'].notna()]
+                df = df[~df['Code'].astype(str).str.contains("Students in Class", na=False)]
+
+                student_role = session.query(Role).filter_by(name='student').first()
+
+                for _, row in df.iterrows():
+                    u_email = str(row.get('Email', '')).strip().lower()
+                    if not u_email or u_email == 'nan':
+                        continue
+
+                    u_code = str(row.get('Code', '')).strip()
+                    if u_code.endswith('.0'): # handle float conversion from excel
+                        u_code = u_code[:-2]
+
+                    u = session.query(User).filter_by(email=u_email).first()
+                    if not u:
+                        u = User(
+                            email=u_email,
+                            student_code=u_code,
+                            registered_method='bulk-tass'
+                        )
+                        u.set_password(u_code) # Default password is their code
+                        if student_role:
+                            u.roles.append(student_role)
+                        session.add(u)
+                    else:
+                        # Update student code if missing
+                        if not u.student_code:
+                            u.student_code = u_code
+
+                    # Split Name: "Lastname, Firstname Middlename"
+                    name_str = str(row.get('Student Name', ''))
+                    if ',' in name_str:
+                        last, first = name_str.split(',', 1)
+                        u.first_name = first.strip()
+                        u.last_name = last.strip()
+                    else:
+                        u.first_name = name_str
+                        u.last_name = u.last_name or ""
+
+                    # House
+                    house_val = row.get('House')
+                    if house_val and not pd.isna(house_val):
+                        h_name = str(house_val).strip()
+                        h = session.query(House).filter_by(name=h_name).first()
+                        if not h:
+                            h = House(name=h_name)
+                            session.add(h)
+                            session.flush()
+                        u.house = h
+
+                    # PC/Tutor Group -> Homeroom
+                    pc_val = row.get('PC/Tutor Group')
+                    if pc_val and not pd.isna(pc_val):
+                        hr_name = str(pc_val).strip()
+                        hr = session.query(Homeroom).filter_by(name=hr_name).first()
+                        if not hr:
+                            hr = Homeroom(name=hr_name)
+                            session.add(hr)
+                            session.flush()
+                        u.homeroom = hr
+
+                    # Year Group (as Group for compatibility)
+                    yr_val = row.get('Year')
+                    if yr_val and not pd.isna(yr_val):
+                        yg_name = f"Year {int(float(yr_val))}"
+                        yg = session.query(Group).filter_by(name=yg_name).first()
+                        if not yg:
+                            yg = Group(name=yg_name)
+                            session.add(yg)
+                            session.flush()
+                        if yg not in u.groups:
+                            u.groups.append(yg)
+
+                    students_to_enroll.append(u)
+            else:
+                flash(request, "XLSX file format not recognized as TASS format.", "danger")
+                return RedirectResponse("/courses/create", status_code=303)
+
+        except Exception as e:
+            session.rollback()
+            flash(request, f"Error processing file: {e}", "danger")
+            import traceback
+            traceback.print_exc()
+            return RedirectResponse("/courses/create", status_code=303)
+
+    if not course_name:
+        flash(request, "Course name is required.", "danger")
+        return RedirectResponse("/courses/create", status_code=303)
+
+    # Get or create course
+    c = session.query(Course).filter_by(name=course_name, semester=semester, year=year).first()
+    if not c:
+        c = Course(name=course_name, semester=semester, year=year)
+        session.add(c)
+        session.flush()
+
+    for u in students_to_enroll:
+        if u not in c.students:
+            c.students.append(u)
+
     session.commit()
-    flash(request, "Course created.", "success")
+    flash(request, f"Course '{course_name}' {'created' if not c.id else 'updated'} and {len(students_to_enroll)} students enrolled.", "success")
     return RedirectResponse("/courses/", status_code=303)
 
 @router.get("/{course_id}/enroll", response_class=HTMLResponse, name="courses.enroll")

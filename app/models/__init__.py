@@ -1,5 +1,5 @@
 # Re-export models so external code can keep using: from app.models import User, Course, ...
-from .user import User, Role, Group
+from .user import User, Role, Group, House, Homeroom
 from .course import Course, Enrollment
 from .badge import Badge, BadgeGrant
 from .award import Award, AwardBadge, award_progress
@@ -11,7 +11,7 @@ from .attendance import Attendance, AttendanceStatus
 
 __all__ = [
     # core
-    "User", "Role", "Group", "Course", "Enrollment",
+    "User", "Role", "Group", "House", "Homeroom", "Course", "Enrollment",
     # badges/awards
     "Badge", "BadgeGrant", "Award", "AwardBadge", "PointLedger",
     # helpers

@@ -17,6 +17,8 @@ class User(db.Model):
     last_name = db.Column(db.String(100), nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     registered_method = db.Column(db.String(20), nullable=False, default="site")  # site|bulk
+    house_id = db.Column(db.Integer, db.ForeignKey("houses.id"), nullable=True)
+    homeroom_id = db.Column(db.Integer, db.ForeignKey("homerooms.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     avatar = db.Column(db.String(255), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
@@ -46,6 +48,8 @@ class User(db.Model):
 
     roles = db.relationship("Role", secondary="user_roles", backref="users")
     groups = db.relationship("Group", secondary="user_groups", backref="users")
+    house = db.relationship("House", back_populates="students")
+    homeroom = db.relationship("Homeroom", back_populates="students")
 
     def set_password(self, password: str):
         """Sets the user's password hash."""
@@ -108,3 +112,15 @@ class Group(db.Model):
     __tablename__ = "groups"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(128), unique=True, nullable=False)
+
+class House(db.Model):
+    __tablename__ = "houses"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), unique=True, nullable=False)
+    students = db.relationship("User", back_populates="house")
+
+class Homeroom(db.Model):
+    __tablename__ = "homerooms"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), unique=True, nullable=False)
+    students = db.relationship("User", back_populates="homeroom")
