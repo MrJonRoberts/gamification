@@ -9,7 +9,7 @@ from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
-from app.models import User, AcademicYear, Term, PublicHoliday
+from app.models import User, AcademicYear, Term, PublicHoliday, House, Homeroom
 from app.models.user import Role, Group
 from app.services.schedule_parser import fetch_term_dates, fetch_public_holidays, TERM_DATES_URL, PUBLIC_HOLIDAYS_URL
 from app.templating import render_template
@@ -418,18 +418,26 @@ async def bulk_upload_action(
                             user.groups.append(yg)
 
                     # House
-                    house = row.get('House')
-                    if house and not pd.isna(house):
-                        hg = get_or_create_group(f"House {house}")
-                        if hg and hg not in user.groups:
-                            user.groups.append(hg)
+                    house_val = row.get('House')
+                    if house_val and not pd.isna(house_val):
+                        h_name = str(house_val).strip()
+                        h = session.query(House).filter_by(name=h_name).first()
+                        if not h:
+                            h = House(name=h_name)
+                            session.add(h)
+                            session.flush()
+                        user.house = h
 
-                    # PC/Tutor Group
-                    pc = row.get('PC/Tutor Group')
-                    if pc and not pd.isna(pc):
-                        pg = get_or_create_group(f"PC {pc}")
-                        if pg and pg not in user.groups:
-                            user.groups.append(pg)
+                    # PC/Tutor Group -> Homeroom
+                    pc_val = row.get('PC/Tutor Group')
+                    if pc_val and not pd.isna(pc_val):
+                        hr_name = str(pc_val).strip()
+                        hr = session.query(Homeroom).filter_by(name=hr_name).first()
+                        if not hr:
+                            hr = Homeroom(name=hr_name)
+                            session.add(hr)
+                            session.flush()
+                        user.homeroom = hr
 
                     if is_new:
                         created += 1
