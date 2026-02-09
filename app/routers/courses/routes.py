@@ -64,7 +64,7 @@ async def create_course_action(
 ):
     course_name = (name or "").strip()
     if not year:
-        year = datetime.now(datetime.timezone.utc).year
+        year = datetime.now().year
 
     students_to_enroll = []
     student_codes_for_images: list[str] = []

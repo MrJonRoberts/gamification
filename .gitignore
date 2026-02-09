@@ -4,6 +4,8 @@ app/static/img/stds/*
 docs/
 .idea
 app.db
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
