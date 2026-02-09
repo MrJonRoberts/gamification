@@ -1,5 +1,6 @@
 from __future__ import annotations
 import io
+import os
 from typing import Optional
 from datetime import datetime
 import pandas as pd
@@ -13,6 +14,27 @@ from app.templating import render_template
 from app.utils import flash
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+
+
+def _split_student_name(name_str: str) -> tuple[str, str]:
+    """
+    Parse TASS name format: "Lastname, Firstname Middlename".
+    Middle names are intentionally dropped.
+    """
+    value = (name_str or "").strip()
+    if not value:
+        return "", ""
+
+    if "," in value:
+        last, first_part = value.split(",", 1)
+        first_tokens = first_part.strip().split()
+        first_name = first_tokens[0] if first_tokens else ""
+        return first_name, last.strip()
+
+    tokens = value.split()
+    if len(tokens) >= 2:
+        return tokens[0], " ".join(tokens[1:])
+    return tokens[0], ""
 
 @router.get("/", response_class=HTMLResponse, name="courses.list_courses")
 def list_courses(
@@ -45,6 +67,7 @@ async def create_course_action(
         year = datetime.now(datetime.timezone.utc).year
 
     students_to_enroll = []
+    student_codes_for_images: list[str] = []
 
     if file and file.filename:
         if not file.filename.lower().endswith(".xlsx"):
@@ -102,15 +125,12 @@ async def create_course_action(
                         if not u.student_code:
                             u.student_code = u_code
 
-                    # Split Name: "Lastname, Firstname Middlename"
-                    name_str = str(row.get('Student Name', ''))
-                    if ',' in name_str:
-                        last, first = name_str.split(',', 1)
-                        u.first_name = first.strip()
-                        u.last_name = last.strip()
-                    else:
-                        u.first_name = name_str
-                        u.last_name = u.last_name or ""
+                    # Split Name: "Lastname, Firstname Middlename" and drop middle names.
+                    parsed_first, parsed_last = _split_student_name(str(row.get('Student Name', '')))
+                    if parsed_first:
+                        u.first_name = parsed_first
+                    if parsed_last:
+                        u.last_name = parsed_last
 
                     # House
                     house_val = row.get('House')
@@ -147,6 +167,8 @@ async def create_course_action(
                             u.groups.append(yg)
 
                     students_to_enroll.append(u)
+                    if u_code:
+                        student_codes_for_images.append(u_code)
             else:
                 flash(request, "XLSX file format not recognized as TASS format.", "danger")
                 return RedirectResponse("/courses/create", status_code=303)
@@ -175,7 +197,54 @@ async def create_course_action(
 
     session.commit()
     flash(request, f"Course '{course_name}' {'created' if not c.id else 'updated'} and {len(students_to_enroll)} students enrolled.", "success")
+
+    image_codes = sorted(set(student_codes_for_images))
+    if image_codes:
+        return render_template(
+            "courses/image_sync.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "course_id": c.id,
+                "student_codes": image_codes,
+            },
+        )
+
     return RedirectResponse("/courses/", status_code=303)
+
+
+@router.post("/student-images", name="courses.save_student_image")
+async def save_student_image(
+    request: Request,
+    code: str = Form(...),
+    image: UploadFile = File(...),
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    _ = current_user
+
+    safe_code = "".join(ch for ch in (code or "") if ch.isalnum())
+    if not safe_code:
+        raise HTTPException(status_code=400, detail="Invalid student code")
+
+    try:
+        content = await image.read()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to read image upload: {exc}") from exc
+
+    if not content:
+        raise HTTPException(status_code=400, detail="Image payload is empty")
+
+    images_dir = os.path.join("app", "static", "images")
+    os.makedirs(images_dir, exist_ok=True)
+    image_path = os.path.join(images_dir, f"{safe_code}.jpg")
+
+    try:
+        with open(image_path, "wb") as handle:
+            handle.write(content)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save image: {exc}") from exc
+
+    return {"ok": True, "code": safe_code, "path": f"/static/images/{safe_code}.jpg"}
 
 @router.get("/{course_id}/enroll", response_class=HTMLResponse, name="courses.enroll")
 def enroll_form(
