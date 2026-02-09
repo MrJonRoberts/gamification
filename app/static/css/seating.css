@@ -2,11 +2,11 @@
 :root {
   --seating-canvas-min-width: 1320px;
   --seating-canvas-height: 70vh;
-  --seating-card-width: 116px;
+  --seating-card-width: 112px;
   --seating-card-padding-x: .35rem;
-  --seating-card-padding-y: .35rem;
-  --seating-avatar-size: 24px;
-  --seating-name-max-width: 76px;
+  --seating-card-padding-y: .3rem;
+  --seating-avatar-size: 22px;
+  --seating-name-max-width: 64px;
 }
 
 .seating-canvas-wrap {
@@ -23,8 +23,9 @@
 /* smaller card footprint */
 .seat-card {
   width: var(--seating-card-width);
-  min-height: 100px;
+  min-height: 72px;
   padding: var(--seating-card-padding-y) var(--seating-card-padding-x);
+  border-width: 1px;
   cursor: grab;
   user-select: none;
 }
@@ -72,9 +73,20 @@
   background: #f1f3f5;
 }
 
+.seat-card-main {
+  margin-bottom: .25rem;
+  min-width: 0;
+}
+
+.seat-card-controls {
+  font-size: .72rem;
+}
+
 .seat-card .points {
-  font-size: .95rem;
+  font-size: .78rem;
   line-height: 1;
+  min-width: 1.4rem;
+  text-align: center;
 }
 
 @media (max-width: 1200px) {

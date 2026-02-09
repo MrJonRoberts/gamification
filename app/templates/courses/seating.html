@@ -41,7 +41,7 @@
                 </div>
                 <div>
                     <label for="deskWidth" class="form-label small text-muted mb-1">Desk width (px)</label>
-                    <input id="deskWidth" class="form-control form-control-sm" type="number" min="90" max="220" step="2" value="116">
+                    <input id="deskWidth" class="form-control form-control-sm" type="number" min="90" max="220" step="2" value="112">
                 </div>
                 <button id="resetDimensions" class="btn btn-sm btn-outline-secondary">Reset dimensions</button>
             </div>
@@ -60,33 +60,29 @@
             top:  {{ (pos.y if pos else loop.index0 * 16) | default(0) }}px;"
              data-locked="{{ 'true' if pos and pos.locked else 'false' }}">
 
-            <div class="px-2 pt-2 d-flex align-items-start justify-content-between gap-1">
-                <div class="name text-truncate fw-semibold small" title="{{ u.first_name }} {{ u.last_name }}">
-                    {{ u.first_name }} {{ u.last_name }}
-                </div>
-                <button class="btn btn-xxs btn-outline-secondary lock-btn" title="Lock/unlock">
-                    <i class="fa {{ 'fa-lock' if pos and pos.locked else 'fa-unlock' }}"></i>
-                </button>
-            </div>
-
-            <div class="py-2 text-center">
+            <div class="seat-card-main d-flex align-items-center gap-2">
                 <img
                         src="{{ (u.avatar|default('', true)) or url_for('static', filename='img/default_user.png') }}"
-                        class="avatar rounded-circle mx-auto d-block"
+                        class="avatar rounded-circle"
                         alt="avatar"
                         onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/default_user.png') }}';"
                 >
+                <div class="name text-truncate fw-semibold small" title="{{ u.first_name }} {{ u.last_name }}">
+                    {{ u.first_name }} {{ u.last_name }}
+                </div>
             </div>
 
-            <div class="px-2 pb-2 d-flex align-items-center justify-content-between gap-1">
+            <div class="seat-card-controls d-flex align-items-center justify-content-between gap-1">
                 <div class="btn-group btn-group-xxs" role="group" aria-label="Behaviour">
                     <button class="btn btn-outline-danger behaviour-minus" data-delta="-1">–</button>
                     <button class="btn btn-outline-success behaviour-plus" data-delta="+1">+</button>
                 </div>
                 <div class="small points">
-                    <span class="text-muted">Pts</span>
                     <span class="fw-bold behaviour-total" data-initial="{{ total }}">{{ total }}</span>
                 </div>
+                <button class="btn btn-xxs btn-outline-secondary lock-btn" title="Lock/unlock">
+                    <i class="fa {{ 'fa-lock' if pos and pos.locked else 'fa-unlock' }}"></i>
+                </button>
             </div>
         </div>
         {% endfor %}
