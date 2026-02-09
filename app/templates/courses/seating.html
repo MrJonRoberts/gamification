@@ -28,6 +28,26 @@
         Drag cards to arrange your room and click the lock to freeze a card. Save named layouts to switch between different seating arrangements.
     </div>
 
+    <div class="card shadow-sm mb-3">
+        <div class="card-body py-2">
+            <div class="d-flex align-items-end gap-3 flex-wrap">
+                <div>
+                    <label for="classroomWidth" class="form-label small text-muted mb-1">Classroom width (px)</label>
+                    <input id="classroomWidth" class="form-control form-control-sm" type="number" min="900" max="3000" step="20" value="1320">
+                </div>
+                <div>
+                    <label for="classroomHeight" class="form-label small text-muted mb-1">Classroom height (vh)</label>
+                    <input id="classroomHeight" class="form-control form-control-sm" type="number" min="50" max="95" step="1" value="70">
+                </div>
+                <div>
+                    <label for="deskWidth" class="form-label small text-muted mb-1">Desk width (px)</label>
+                    <input id="deskWidth" class="form-control form-control-sm" type="number" min="90" max="220" step="2" value="116">
+                </div>
+                <button id="resetDimensions" class="btn btn-sm btn-outline-secondary">Reset dimensions</button>
+            </div>
+        </div>
+    </div>
+
     <div class="seating-canvas-wrap">
     <div id="seating-canvas" class="seating-canvas position-relative border rounded"
          style="height:70vh; min-height:480px; background:#f8f9fa;">
