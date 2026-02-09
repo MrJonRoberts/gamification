@@ -4,7 +4,8 @@ app/static/img/stds/*
 docs/
 .idea
 app.db
-
+*.db
+backups/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
