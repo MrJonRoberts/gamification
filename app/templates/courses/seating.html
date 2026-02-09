@@ -28,6 +28,7 @@
         Drag cards to arrange your room and click the lock to freeze a card. Save named layouts to switch between different seating arrangements.
     </div>
 
+    <div class="seating-canvas-wrap">
     <div id="seating-canvas" class="seating-canvas position-relative border rounded"
          style="height:70vh; min-height:480px; background:#f8f9fa;">
         {% for u in users %}
@@ -39,7 +40,7 @@
             top:  {{ (pos.y if pos else loop.index0 * 16) | default(0) }}px;"
              data-locked="{{ 'true' if pos and pos.locked else 'false' }}">
 
-            <div class="px-2 pt-2 d-flex align-items-center justify-content-between">
+            <div class="px-2 pt-2 d-flex align-items-start justify-content-between gap-1">
                 <div class="name text-truncate fw-semibold small" title="{{ u.first_name }} {{ u.last_name }}">
                     {{ u.first_name }} {{ u.last_name }}
                 </div>
@@ -57,18 +58,19 @@
                 >
             </div>
 
-            <div class="px-2 pb-2 d-flex align-items-center justify-content-between">
+            <div class="px-2 pb-2 d-flex align-items-center justify-content-between gap-1">
                 <div class="btn-group btn-group-xxs" role="group" aria-label="Behaviour">
                     <button class="btn btn-outline-danger behaviour-minus" data-delta="-1">–</button>
                     <button class="btn btn-outline-success behaviour-plus" data-delta="+1">+</button>
                 </div>
-                <div class="small">
+                <div class="small points">
                     <span class="text-muted">Pts</span>
                     <span class="fw-bold behaviour-total" data-initial="{{ total }}">{{ total }}</span>
                 </div>
             </div>
         </div>
         {% endfor %}
+    </div>
     </div>
 </div>
 
