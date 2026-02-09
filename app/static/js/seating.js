@@ -14,6 +14,72 @@
 
     let drag = null;
 
+    const dimensionInputs = {
+        classroomWidth: document.getElementById('classroomWidth'),
+        classroomHeight: document.getElementById('classroomHeight'),
+        deskWidth: document.getElementById('deskWidth')
+    };
+    const dimensionDefaults = {
+        classroomWidth: 1320,
+        classroomHeight: 70,
+        deskWidth: 116
+    };
+    const dimensionLimits = {
+        classroomWidth: {min: 900, max: 3000},
+        classroomHeight: {min: 50, max: 95},
+        deskWidth: {min: 90, max: 220}
+    };
+
+    function clampDimension(value, key) {
+        const num = Number.parseFloat(value);
+        if (!Number.isFinite(num)) return dimensionDefaults[key];
+        const {min, max} = dimensionLimits[key];
+        return Math.min(max, Math.max(min, num));
+    }
+
+    function persistDimensions(state) {
+        try {
+            localStorage.setItem(`seating-dimensions-${cfg.courseId || 'default'}`, JSON.stringify(state));
+        } catch (err) {
+            console.debug('Unable to persist dimensions', err);
+        }
+    }
+
+    function readDimensions() {
+        try {
+            const raw = localStorage.getItem(`seating-dimensions-${cfg.courseId || 'default'}`);
+            if (!raw) return {...dimensionDefaults};
+            const parsed = JSON.parse(raw);
+            return {
+                classroomWidth: clampDimension(parsed.classroomWidth, 'classroomWidth'),
+                classroomHeight: clampDimension(parsed.classroomHeight, 'classroomHeight'),
+                deskWidth: clampDimension(parsed.deskWidth, 'deskWidth')
+            };
+        } catch (err) {
+            console.debug('Unable to read saved dimensions', err);
+            return {...dimensionDefaults};
+        }
+    }
+
+    function applyDimensions(state) {
+        const root = document.documentElement;
+        root.style.setProperty('--seating-canvas-min-width', `${state.classroomWidth}px`);
+        root.style.setProperty('--seating-canvas-height', `${state.classroomHeight}vh`);
+        root.style.setProperty('--seating-card-width', `${state.deskWidth}px`);
+
+        Object.entries(dimensionInputs).forEach(([key, el]) => {
+            if (el) el.value = String(state[key]);
+        });
+    }
+
+    function getDimensionsFromInputs() {
+        return {
+            classroomWidth: clampDimension(dimensionInputs.classroomWidth?.value, 'classroomWidth'),
+            classroomHeight: clampDimension(dimensionInputs.classroomHeight?.value, 'classroomHeight'),
+            deskWidth: clampDimension(dimensionInputs.deskWidth?.value, 'deskWidth')
+        };
+    }
+
     function getCardPosition(card) {
         return {
             x: parseFloat(card.style.left) || 0,
@@ -256,6 +322,22 @@
         const initial = parseInt(el?.getAttribute('data-initial') || el?.textContent || '0', 10) || 0;
         updateScoreVisuals(card, initial);
     });
+
+    Object.values(dimensionInputs).forEach((inputEl) => {
+        inputEl?.addEventListener('change', () => {
+            const state = getDimensionsFromInputs();
+            applyDimensions(state);
+            persistDimensions(state);
+        });
+    });
+
+    document.getElementById('resetDimensions')?.addEventListener('click', () => {
+        const defaults = {...dimensionDefaults};
+        applyDimensions(defaults);
+        persistDimensions(defaults);
+    });
+
+    applyDimensions(readDimensions());
 
     document.getElementById('saveLayout')?.addEventListener('click', handleSaveLayout);
     document.getElementById('loadLayout')?.addEventListener('click', handleLoadLayout);
