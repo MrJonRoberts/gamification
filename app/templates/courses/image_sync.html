@@ -11,7 +11,7 @@
 <ul class="small" id="sync-log"></ul>
 <input type="hidden" id="csrf-token" value="{{ csrf_token() }}">
 
-<form id="sync-complete-form" action="/courses/" method="get" class="mt-3" style="display:none;">
+<form id="sync-complete-form" action="/courses/" method="get" class="mt-3">
   <button class="btn btn-success" type="submit">Continue to Courses</button>
 </form>
 
@@ -22,17 +22,27 @@
   const studentCodes = {{ student_codes | tojson }};
   const statusEl = document.getElementById('sync-status');
   const logEl = document.getElementById('sync-log');
-  const doneEl = document.getElementById('sync-complete-form');
   const imageUrlTemplate = 'https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm?do=kiosk.general.StudPicContentImage&studentCode=';
 
+  const IMAGE_FETCH_TIMEOUT_MS = 8000;
   let successCount = 0;
   let failCount = 0;
+  let corsBlocked = false;
 
   function logLine(message, type) {
     const li = document.createElement('li');
     li.textContent = message;
     li.className = type === 'error' ? 'text-danger' : 'text-success';
     logEl.appendChild(li);
+  }
+
+  function isLikelyCorsError(error) {
+    if (!(error instanceof TypeError)) {
+      return false;
+    }
+
+    const message = String(error.message || '').toLowerCase();
+    return message.includes('failed to fetch') || message.includes('networkerror');
   }
 
   async function timeoutFetch(url, timeoutMs) {
@@ -66,7 +76,7 @@
   async function processOne(code) {
     const imageUrl = imageUrlTemplate + encodeURIComponent(code);
     try {
-      const imageResponse = await timeoutFetch(imageUrl, 8000);
+      const imageResponse = await timeoutFetch(imageUrl, IMAGE_FETCH_TIMEOUT_MS);
       if (!imageResponse.ok) {
         throw new Error('Image fetch failed with status ' + imageResponse.status);
       }
@@ -79,20 +89,36 @@
       await uploadImage(code, blob);
       successCount += 1;
       logLine(code + ': image saved', 'success');
+      return;
     } catch (error) {
+      if (isLikelyCorsError(error)) {
+        corsBlocked = true;
+        throw new Error('Browser blocked cross-origin image access (CORS).');
+      }
       failCount += 1;
       logLine(code + ': skipped (' + error.message + ')', 'error');
     }
   }
 
   async function run() {
-    for (const code of studentCodes) {
-      await processOne(code);
+    for (const [index, code] of studentCodes.entries()) {
+      try {
+        await processOne(code);
+      } catch (error) {
+        failCount += studentCodes.length - index;
+        logLine('Image sync stopped: ' + error.message, 'error');
+        break;
+      }
+    }
+
+    if (corsBlocked) {
+      statusEl.className = 'alert alert-warning';
+      statusEl.textContent = 'Image sync could not continue because TASS blocked browser cross-origin requests (CORS). Students were enrolled successfully; you can continue without images.';
+      return;
     }
 
     statusEl.className = failCount ? 'alert alert-warning' : 'alert alert-success';
     statusEl.textContent = `Image sync complete. Saved: ${successCount}. Skipped: ${failCount}.`;
-    doneEl.style.display = 'block';
   }
 
   run();
