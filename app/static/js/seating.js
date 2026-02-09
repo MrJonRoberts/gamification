@@ -22,7 +22,7 @@
     const dimensionDefaults = {
         classroomWidth: 1320,
         classroomHeight: 70,
-        deskWidth: 116
+        deskWidth: 112
     };
     const dimensionLimits = {
         classroomWidth: {min: 900, max: 3000},
