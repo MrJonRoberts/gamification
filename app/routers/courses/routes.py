@@ -1,8 +1,10 @@
 from __future__ import annotations
 import io
 import os
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
+import httpx
 import pandas as pd
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -14,6 +16,10 @@ from app.templating import render_template
 from app.utils import flash
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+
+TASS_IMAGE_URL = "https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm"
+IMAGE_PROXY_TIMEOUT_SECONDS = 10.0
+IMAGE_PROXY_MAX_BYTES = 5 * 1024 * 1024
 
 
 def _split_student_name(name_str: str) -> tuple[str, str]:
@@ -35,6 +41,10 @@ def _split_student_name(name_str: str) -> tuple[str, str]:
     if len(tokens) >= 2:
         return tokens[0], " ".join(tokens[1:])
     return tokens[0], ""
+
+
+def _sanitize_student_code(student_code: str) -> str:
+    return "".join(ch for ch in (student_code or "") if ch.isalnum())
 
 @router.get("/", response_class=HTMLResponse, name="courses.list_courses")
 def list_courses(
@@ -222,7 +232,7 @@ async def save_student_image(
 ):
     _ = current_user
 
-    safe_code = "".join(ch for ch in (code or "") if ch.isalnum())
+    safe_code = _sanitize_student_code(code)
     if not safe_code:
         raise HTTPException(status_code=400, detail="Invalid student code")
 
@@ -245,6 +255,54 @@ async def save_student_image(
         raise HTTPException(status_code=500, detail=f"Failed to save image: {exc}") from exc
 
     return {"ok": True, "code": safe_code, "path": f"/static/images/{safe_code}.jpg"}
+
+
+@router.get("/proxy-image/{student_code}", name="courses.proxy_student_image")
+async def proxy_student_image(
+    student_code: str,
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    _ = current_user
+
+    safe_code = _sanitize_student_code(student_code)
+    if not safe_code:
+        raise HTTPException(status_code=400, detail="Invalid student code")
+
+    params = {
+        "do": "kiosk.general.StudPicContentImage",
+        "studentCode": safe_code,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=IMAGE_PROXY_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            upstream = await client.get(TASS_IMAGE_URL, params=params)
+            upstream.raise_for_status()
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Timed out retrieving student image") from exc
+    except httpx.HTTPStatusError as exc:
+        status_code = 404 if exc.response.status_code == 404 else 502
+        raise HTTPException(status_code=status_code, detail="Student image not available") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Unable to retrieve student image") from exc
+
+    content = upstream.content
+    if not content:
+        raise HTTPException(status_code=404, detail="Student image was empty")
+    if len(content) > IMAGE_PROXY_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Student image exceeded allowed size")
+
+    media_type = upstream.headers.get("Content-Type", "image/jpeg")
+    if not media_type.lower().startswith("image/"):
+        raise HTTPException(status_code=502, detail="Upstream returned non-image content")
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 @router.get("/{course_id}/enroll", response_class=HTMLResponse, name="courses.enroll")
 def enroll_form(
