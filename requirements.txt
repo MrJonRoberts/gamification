@@ -16,5 +16,6 @@ pydantic_settings
 
 Pillow>=10.3.0
 
+httpx
 requests
 beautifulsoup4
