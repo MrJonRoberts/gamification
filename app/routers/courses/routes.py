@@ -4,12 +4,11 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-import httpx
 import pandas as pd
 from openpyxl import load_workbook
 from PIL import Image
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
@@ -18,10 +17,6 @@ from app.templating import render_template
 from app.utils import flash
 
 router = APIRouter(prefix="/courses", tags=["courses"])
-
-TASS_IMAGE_URL = "https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm"
-IMAGE_PROXY_TIMEOUT_SECONDS = 10.0
-IMAGE_PROXY_MAX_BYTES = 5 * 1024 * 1024
 
 
 def _split_student_name(name_str: str) -> tuple[str, str]:
@@ -47,6 +42,13 @@ def _split_student_name(name_str: str) -> tuple[str, str]:
 
 def _sanitize_student_code(student_code: str) -> str:
     return "".join(ch for ch in (student_code or "") if ch.isalnum())
+
+
+def _normalize_tass_code(value: object) -> str:
+    code = str(value or "").strip()
+    if code.endswith(".0"):
+        return code[:-2]
+    return code
 
 
 def _extract_tass_row_images(content: bytes) -> dict[int, bytes]:
@@ -136,7 +138,6 @@ async def create_course_action(
         year = datetime.now(timezone.utc).year
 
     students_to_enroll = []
-    student_codes_for_images: list[str] = []
     saved_embedded_images = 0
 
     if file and file.filename:
@@ -162,24 +163,30 @@ async def create_course_action(
                 if not course_name:
                     course_name = str(df_full.iloc[2, 0]).strip()
 
-                # Headers are in Row 2 (index 1)
+                # Headers are in Row 2 (index 1). Keep original DataFrame indices,
+                # so we can map records back to the exact Excel row for image lookup.
                 df = pd.read_excel(io.BytesIO(content), header=1)
-                # Skip the class info row which is now the first row of data
-                df = df.iloc[1:].reset_index(drop=True)
-                # Drop summary rows
-                df = df[df['Code'].notna()]
-                df = df[~df['Code'].astype(str).str.contains("Students in Class", na=False)]
+
+                required_columns = {"Code", "Student Name", "Email"}
+                missing_columns = required_columns - set(df.columns)
+                if missing_columns:
+                    missing_list = ", ".join(sorted(missing_columns))
+                    raise ValueError(f"Missing expected TASS columns: {missing_list}")
+
+                # Skip the class info row which is the first row of data (Excel row 3).
+                df = df.iloc[1:]
+                # Drop summary rows.
+                df = df[df["Code"].notna()]
+                df = df[~df["Code"].astype(str).str.contains("Students in Class", na=False)]
 
                 student_role = session.query(Role).filter_by(name='student').first()
 
-                for row_offset, (_, row) in enumerate(df.iterrows(), start=4):
+                for df_index, row in df.iterrows():
                     u_email = str(row.get('Email', '')).strip().lower()
                     if not u_email or u_email == 'nan':
                         continue
 
-                    u_code = str(row.get('Code', '')).strip()
-                    if u_code.endswith('.0'): # handle float conversion from excel
-                        u_code = u_code[:-2]
+                    u_code = _normalize_tass_code(row.get("Code", ""))
 
                     u = session.query(User).filter_by(email=u_email).first()
                     if not u:
@@ -240,10 +247,9 @@ async def create_course_action(
 
                     students_to_enroll.append(u)
                     if u_code:
-                        student_codes_for_images.append(u_code)
-
-                        # First student row is Excel row 4 in the TASS export format.
-                        excel_row = row_offset
+                        # DataFrame index maps to Excel row number with offset +3
+                        # for this header layout (header row at Excel row 2).
+                        excel_row = int(df_index) + 3
                         photo_bytes = row_images.get(excel_row)
                         if photo_bytes and _save_student_photo(u_code, photo_bytes):
                             saved_embedded_images += 1
@@ -278,108 +284,12 @@ async def create_course_action(
     flash(
         request,
         f"Course '{course_name}' {'created' if is_new_course else 'updated'} and {len(students_to_enroll)} students enrolled. "
-        f"Saved {saved_embedded_images} embedded photos.",
+        f"Saved {saved_embedded_images} photos from the XLSX file.",
         "success",
     )
 
-    image_codes = sorted(set(student_codes_for_images))
-    if image_codes:
-        return render_template(
-            "courses/image_sync.html",
-            {
-                "request": request,
-                "current_user": current_user,
-                "course_id": c.id,
-                "student_codes": image_codes,
-            },
-        )
-
     return RedirectResponse("/courses/", status_code=303)
 
-
-@router.post("/student-images", name="courses.save_student_image")
-async def save_student_image(
-    request: Request,
-    code: str = Form(...),
-    image: UploadFile = File(...),
-    current_user: User | AnonymousUser = Depends(require_user),
-):
-    _ = current_user
-
-    safe_code = _sanitize_student_code(code)
-    if not safe_code:
-        raise HTTPException(status_code=400, detail="Invalid student code")
-
-    try:
-        content = await image.read()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Unable to read image upload: {exc}") from exc
-
-    if not content:
-        raise HTTPException(status_code=400, detail="Image payload is empty")
-
-    images_dir = os.path.join("app", "static", "img", "stds")
-    os.makedirs(images_dir, exist_ok=True)
-    image_path = os.path.join(images_dir, f"{safe_code}.jpg")
-
-    try:
-        with Image.open(io.BytesIO(content)) as raw:
-            image = raw.convert("RGB")
-            image.save(image_path, format="JPEG", quality=90)
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to save image: {exc}") from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid image data: {exc}") from exc
-
-    return {"ok": True, "code": safe_code, "path": f"/static/img/stds/{safe_code}.jpg"}
-
-
-@router.get("/proxy-image/{student_code}", name="courses.proxy_student_image")
-async def proxy_student_image(
-    student_code: str,
-    current_user: User | AnonymousUser = Depends(require_user),
-):
-    _ = current_user
-
-    safe_code = _sanitize_student_code(student_code)
-    if not safe_code:
-        raise HTTPException(status_code=400, detail="Invalid student code")
-
-    params = {
-        "do": "kiosk.general.StudPicContentImage",
-        "studentCode": safe_code,
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=IMAGE_PROXY_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            upstream = await client.get(TASS_IMAGE_URL, params=params)
-            upstream.raise_for_status()
-    except httpx.TimeoutException as exc:
-        raise HTTPException(status_code=504, detail="Timed out retrieving student image") from exc
-    except httpx.HTTPStatusError as exc:
-        status_code = 404 if exc.response.status_code == 404 else 502
-        raise HTTPException(status_code=status_code, detail="Student image not available") from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="Unable to retrieve student image") from exc
-
-    content = upstream.content
-    if not content:
-        raise HTTPException(status_code=404, detail="Student image was empty")
-    if len(content) > IMAGE_PROXY_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="Student image exceeded allowed size")
-
-    media_type = upstream.headers.get("Content-Type", "image/jpeg")
-    if not media_type.lower().startswith("image/"):
-        raise HTTPException(status_code=502, detail="Upstream returned non-image content")
-
-    return Response(
-        content=content,
-        media_type=media_type,
-        headers={
-            "Cache-Control": "public, max-age=3600",
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
 
 @router.get("/{course_id}/enroll", response_class=HTMLResponse, name="courses.enroll")
 def enroll_form(
