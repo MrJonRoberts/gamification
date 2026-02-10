@@ -1,11 +1,14 @@
 from __future__ import annotations
+import asyncio
 import io
+import logging
 import os
 from datetime import datetime
 from typing import Optional
 
 import httpx
 import pandas as pd
+import requests
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
@@ -16,6 +19,12 @@ from app.templating import render_template
 from app.utils import flash
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+logger = logging.getLogger(__name__)
+
+TASS_IMAGE_URL = "https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm"
+IMAGE_PROXY_TIMEOUT_SECONDS = 10.0
+IMAGE_PROXY_MAX_BYTES = 5 * 1024 * 1024
+TASS_LOGIN_HINTS = ("login", "signin", "username", "password")
 
 TASS_IMAGE_URL = "https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm"
 IMAGE_PROXY_TIMEOUT_SECONDS = 10.0
