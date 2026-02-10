@@ -1,11 +1,13 @@
 from __future__ import annotations
 import io
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 import pandas as pd
+from openpyxl import load_workbook
+from PIL import Image
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
@@ -46,6 +48,63 @@ def _split_student_name(name_str: str) -> tuple[str, str]:
 def _sanitize_student_code(student_code: str) -> str:
     return "".join(ch for ch in (student_code or "") if ch.isalnum())
 
+
+def _extract_tass_row_images(content: bytes) -> dict[int, bytes]:
+    """
+    Extract embedded worksheet images by Excel row index (1-based).
+    Only column A images are considered (new TASS export format).
+    """
+    workbook = load_workbook(io.BytesIO(content), data_only=True)
+    sheet = workbook.active
+
+    row_to_image: dict[int, bytes] = {}
+    for image in getattr(sheet, "_images", []):
+        anchor_from = getattr(getattr(image, "anchor", None), "_from", None)
+        if anchor_from is None:
+            continue
+
+        # openpyxl anchor coordinates are 0-based.
+        if int(anchor_from.col) != 0:
+            continue
+
+        row_index = int(anchor_from.row) + 1
+
+        data = None
+        try:
+            data = image._data()
+        except Exception:
+            image_ref = getattr(image, "ref", None)
+            if hasattr(image_ref, "read"):
+                try:
+                    data = image_ref.read()
+                except Exception:
+                    data = None
+
+        if data:
+            row_to_image[row_index] = data
+
+    return row_to_image
+
+
+def _save_student_photo(student_code: str, image_bytes: bytes) -> str | None:
+    """Save student image as JPEG into static/img/stds using sanitized student code."""
+    safe_code = _sanitize_student_code(student_code)
+    if not safe_code or not image_bytes:
+        return None
+
+    images_dir = os.path.join("app", "static", "img", "stds")
+    os.makedirs(images_dir, exist_ok=True)
+    image_path = os.path.join(images_dir, f"{safe_code}.jpg")
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as raw:
+            image = raw.convert("RGB")
+            image.save(image_path, format="JPEG", quality=90)
+    except Exception:
+        return None
+
+    return image_path
+
 @router.get("/", response_class=HTMLResponse, name="courses.list_courses")
 def list_courses(
     request: Request,
@@ -74,10 +133,11 @@ async def create_course_action(
 ):
     course_name = (name or "").strip()
     if not year:
-        year = datetime.now(datetime.timezone.utc).year
+        year = datetime.now(timezone.utc).year
 
     students_to_enroll = []
     student_codes_for_images: list[str] = []
+    saved_embedded_images = 0
 
     if file and file.filename:
         if not file.filename.lower().endswith(".xlsx"):
@@ -96,6 +156,8 @@ async def create_course_action(
                     is_tass = True
 
             if is_tass:
+                row_images = _extract_tass_row_images(content)
+
                 # Course Name from Row 3 (index 2) if not provided
                 if not course_name:
                     course_name = str(df_full.iloc[2, 0]).strip()
@@ -103,14 +165,14 @@ async def create_course_action(
                 # Headers are in Row 2 (index 1)
                 df = pd.read_excel(io.BytesIO(content), header=1)
                 # Skip the class info row which is now the first row of data
-                df = df.iloc[1:]
+                df = df.iloc[1:].reset_index(drop=True)
                 # Drop summary rows
                 df = df[df['Code'].notna()]
                 df = df[~df['Code'].astype(str).str.contains("Students in Class", na=False)]
 
                 student_role = session.query(Role).filter_by(name='student').first()
 
-                for _, row in df.iterrows():
+                for row_offset, (_, row) in enumerate(df.iterrows(), start=4):
                     u_email = str(row.get('Email', '')).strip().lower()
                     if not u_email or u_email == 'nan':
                         continue
@@ -179,6 +241,12 @@ async def create_course_action(
                     students_to_enroll.append(u)
                     if u_code:
                         student_codes_for_images.append(u_code)
+
+                        # First student row is Excel row 4 in the TASS export format.
+                        excel_row = row_offset
+                        photo_bytes = row_images.get(excel_row)
+                        if photo_bytes and _save_student_photo(u_code, photo_bytes):
+                            saved_embedded_images += 1
             else:
                 flash(request, "XLSX file format not recognized as TASS format.", "danger")
                 return RedirectResponse("/courses/create", status_code=303)
@@ -196,6 +264,7 @@ async def create_course_action(
 
     # Get or create course
     c = session.query(Course).filter_by(name=course_name, semester=semester, year=year).first()
+    is_new_course = c is None
     if not c:
         c = Course(name=course_name, semester=semester, year=year)
         session.add(c)
@@ -206,7 +275,12 @@ async def create_course_action(
             c.students.append(u)
 
     session.commit()
-    flash(request, f"Course '{course_name}' {'created' if not c.id else 'updated'} and {len(students_to_enroll)} students enrolled.", "success")
+    flash(
+        request,
+        f"Course '{course_name}' {'created' if is_new_course else 'updated'} and {len(students_to_enroll)} students enrolled. "
+        f"Saved {saved_embedded_images} embedded photos.",
+        "success",
+    )
 
     image_codes = sorted(set(student_codes_for_images))
     if image_codes:
@@ -244,17 +318,20 @@ async def save_student_image(
     if not content:
         raise HTTPException(status_code=400, detail="Image payload is empty")
 
-    images_dir = os.path.join("app", "static", "images")
+    images_dir = os.path.join("app", "static", "img", "stds")
     os.makedirs(images_dir, exist_ok=True)
     image_path = os.path.join(images_dir, f"{safe_code}.jpg")
 
     try:
-        with open(image_path, "wb") as handle:
-            handle.write(content)
+        with Image.open(io.BytesIO(content)) as raw:
+            image = raw.convert("RGB")
+            image.save(image_path, format="JPEG", quality=90)
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Failed to save image: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid image data: {exc}") from exc
 
-    return {"ok": True, "code": safe_code, "path": f"/static/images/{safe_code}.jpg"}
+    return {"ok": True, "code": safe_code, "path": f"/static/img/stds/{safe_code}.jpg"}
 
 
 @router.get("/proxy-image/{student_code}", name="courses.proxy_student_image")
