@@ -1,9 +1,13 @@
 from __future__ import annotations
+import asyncio
 import io
+import logging
 import os
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
 import pandas as pd
+import requests
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
@@ -14,6 +18,12 @@ from app.templating import render_template
 from app.utils import flash
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+logger = logging.getLogger(__name__)
+
+TASS_IMAGE_URL = "https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm"
+IMAGE_PROXY_TIMEOUT_SECONDS = 10.0
+IMAGE_PROXY_MAX_BYTES = 5 * 1024 * 1024
+TASS_LOGIN_HINTS = ("login", "signin", "username", "password")
 
 
 def _split_student_name(name_str: str) -> tuple[str, str]:
@@ -35,6 +45,31 @@ def _split_student_name(name_str: str) -> tuple[str, str]:
     if len(tokens) >= 2:
         return tokens[0], " ".join(tokens[1:])
     return tokens[0], ""
+
+
+def _sanitize_student_code(student_code: str) -> str:
+    return "".join(ch for ch in (student_code or "") if ch.isalnum())
+
+
+def _build_tass_proxy_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (compatible; GamificationImageSync/1.0)",
+    }
+
+    auth_header = os.getenv("TASS_PROXY_AUTHORIZATION", "").strip()
+    if auth_header:
+        headers["Authorization"] = auth_header
+
+    return headers
+
+
+def _looks_like_login_content(content_type: str, body: bytes) -> bool:
+    if "text/html" not in content_type.lower():
+        return False
+
+    snippet = body[:4096].decode("utf-8", errors="ignore").lower()
+    return any(hint in snippet for hint in TASS_LOGIN_HINTS)
 
 @router.get("/", response_class=HTMLResponse, name="courses.list_courses")
 def list_courses(
@@ -222,7 +257,7 @@ async def save_student_image(
 ):
     _ = current_user
 
-    safe_code = "".join(ch for ch in (code or "") if ch.isalnum())
+    safe_code = _sanitize_student_code(code)
     if not safe_code:
         raise HTTPException(status_code=400, detail="Invalid student code")
 
@@ -245,6 +280,72 @@ async def save_student_image(
         raise HTTPException(status_code=500, detail=f"Failed to save image: {exc}") from exc
 
     return {"ok": True, "code": safe_code, "path": f"/static/images/{safe_code}.jpg"}
+
+
+@router.get("/proxy-image/{student_code}", name="courses.proxy_student_image")
+async def proxy_student_image(
+    student_code: str,
+    current_user: User | AnonymousUser = Depends(require_user),
+):
+    _ = current_user
+
+    safe_code = _sanitize_student_code(student_code)
+    if not safe_code:
+        raise HTTPException(status_code=400, detail="Invalid student code")
+
+    params = {
+        "do": "kiosk.general.StudPicContentImage",
+        "studentCode": safe_code,
+    }
+
+    verify_ssl = os.getenv("TASS_PROXY_VERIFY_SSL", "true").lower() != "false"
+
+    try:
+        upstream = await asyncio.to_thread(
+            requests.get,
+            TASS_IMAGE_URL,
+            params=params,
+            timeout=IMAGE_PROXY_TIMEOUT_SECONDS,
+            allow_redirects=True,
+            verify=verify_ssl,
+            headers=_build_tass_proxy_headers(),
+        )
+    except requests.Timeout as exc:
+        raise HTTPException(status_code=504, detail="Timed out retrieving student image") from exc
+    except requests.RequestException as exc:
+        logger.warning("TASS image proxy request failed for %s: %s", safe_code, exc)
+        raise HTTPException(status_code=502, detail="Unable to retrieve student image") from exc
+
+    if upstream.status_code >= 400:
+        logger.warning("TASS image lookup failed for %s with status %s", safe_code, upstream.status_code)
+        status_code = 404 if upstream.status_code == 404 else 502
+        raise HTTPException(status_code=status_code, detail="Student image not available")
+
+    content = upstream.content
+    if not content:
+        raise HTTPException(status_code=404, detail="Student image was empty")
+    if len(content) > IMAGE_PROXY_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Student image exceeded allowed size")
+
+    media_type = upstream.headers.get("Content-Type", "image/jpeg")
+    if _looks_like_login_content(media_type, content):
+        raise HTTPException(
+            status_code=424,
+            detail="TASS returned a login page instead of an image. Configure TASS proxy auth/session settings.",
+        )
+
+    if not media_type.lower().startswith("image/"):
+        logger.warning("Unexpected proxy content type for %s: %s", safe_code, media_type)
+        raise HTTPException(status_code=502, detail="Upstream returned non-image content")
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, max-age=900",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 @router.get("/{course_id}/enroll", response_class=HTMLResponse, name="courses.enroll")
 def enroll_form(
