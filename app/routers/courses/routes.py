@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from typing import Optional
 
+import httpx
 import pandas as pd
 import requests
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
@@ -24,6 +25,10 @@ TASS_IMAGE_URL = "https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm"
 IMAGE_PROXY_TIMEOUT_SECONDS = 10.0
 IMAGE_PROXY_MAX_BYTES = 5 * 1024 * 1024
 TASS_LOGIN_HINTS = ("login", "signin", "username", "password")
+
+TASS_IMAGE_URL = "https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm"
+IMAGE_PROXY_TIMEOUT_SECONDS = 10.0
+IMAGE_PROXY_MAX_BYTES = 5 * 1024 * 1024
 
 
 def _split_student_name(name_str: str) -> tuple[str, str]:
@@ -49,27 +54,6 @@ def _split_student_name(name_str: str) -> tuple[str, str]:
 
 def _sanitize_student_code(student_code: str) -> str:
     return "".join(ch for ch in (student_code or "") if ch.isalnum())
-
-
-def _build_tass_proxy_headers() -> dict[str, str]:
-    headers = {
-        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-        "User-Agent": "Mozilla/5.0 (compatible; GamificationImageSync/1.0)",
-    }
-
-    auth_header = os.getenv("TASS_PROXY_AUTHORIZATION", "").strip()
-    if auth_header:
-        headers["Authorization"] = auth_header
-
-    return headers
-
-
-def _looks_like_login_content(content_type: str, body: bytes) -> bool:
-    if "text/html" not in content_type.lower():
-        return False
-
-    snippet = body[:4096].decode("utf-8", errors="ignore").lower()
-    return any(hint in snippet for hint in TASS_LOGIN_HINTS)
 
 @router.get("/", response_class=HTMLResponse, name="courses.list_courses")
 def list_courses(
@@ -298,28 +282,17 @@ async def proxy_student_image(
         "studentCode": safe_code,
     }
 
-    verify_ssl = os.getenv("TASS_PROXY_VERIFY_SSL", "true").lower() != "false"
-
     try:
-        upstream = await asyncio.to_thread(
-            requests.get,
-            TASS_IMAGE_URL,
-            params=params,
-            timeout=IMAGE_PROXY_TIMEOUT_SECONDS,
-            allow_redirects=True,
-            verify=verify_ssl,
-            headers=_build_tass_proxy_headers(),
-        )
-    except requests.Timeout as exc:
+        async with httpx.AsyncClient(timeout=IMAGE_PROXY_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            upstream = await client.get(TASS_IMAGE_URL, params=params)
+            upstream.raise_for_status()
+    except httpx.TimeoutException as exc:
         raise HTTPException(status_code=504, detail="Timed out retrieving student image") from exc
-    except requests.RequestException as exc:
-        logger.warning("TASS image proxy request failed for %s: %s", safe_code, exc)
+    except httpx.HTTPStatusError as exc:
+        status_code = 404 if exc.response.status_code == 404 else 502
+        raise HTTPException(status_code=status_code, detail="Student image not available") from exc
+    except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Unable to retrieve student image") from exc
-
-    if upstream.status_code >= 400:
-        logger.warning("TASS image lookup failed for %s with status %s", safe_code, upstream.status_code)
-        status_code = 404 if upstream.status_code == 404 else 502
-        raise HTTPException(status_code=status_code, detail="Student image not available")
 
     content = upstream.content
     if not content:
@@ -328,21 +301,14 @@ async def proxy_student_image(
         raise HTTPException(status_code=413, detail="Student image exceeded allowed size")
 
     media_type = upstream.headers.get("Content-Type", "image/jpeg")
-    if _looks_like_login_content(media_type, content):
-        raise HTTPException(
-            status_code=424,
-            detail="TASS returned a login page instead of an image. Configure TASS proxy auth/session settings.",
-        )
-
     if not media_type.lower().startswith("image/"):
-        logger.warning("Unexpected proxy content type for %s: %s", safe_code, media_type)
         raise HTTPException(status_code=502, detail="Upstream returned non-image content")
 
     return Response(
         content=content,
         media_type=media_type,
         headers={
-            "Cache-Control": "private, max-age=900",
+            "Cache-Control": "public, max-age=3600",
             "X-Content-Type-Options": "nosniff",
         },
     )
