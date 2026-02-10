@@ -3,7 +3,7 @@
 {% block content %}
 <h1 class="h4">Syncing Student Images</h1>
 <p class="text-muted mb-3">
-  Fetching student images from TASS using your current browser session.
+  Fetching student images from TASS via the server image proxy.
   This may take a moment.
 </p>
 
@@ -22,7 +22,7 @@
   const studentCodes = {{ student_codes | tojson }};
   const statusEl = document.getElementById('sync-status');
   const logEl = document.getElementById('sync-log');
-  const imageUrlTemplate = 'https://alpha.tas.qld.edu.au/kiosk/inline-file.cfm?do=kiosk.general.StudPicContentImage&studentCode=';
+  const imageUrlTemplate = '/courses/proxy-image/';
 
   const IMAGE_FETCH_TIMEOUT_MS = 8000;
   let successCount = 0;
@@ -93,7 +93,7 @@
     } catch (error) {
       if (isLikelyCorsError(error)) {
         corsBlocked = true;
-        throw new Error('Browser blocked cross-origin image access (CORS).');
+        throw new Error('Image proxy request failed.');
       }
       failCount += 1;
       logLine(code + ': skipped (' + error.message + ')', 'error');
@@ -113,7 +113,7 @@
 
     if (corsBlocked) {
       statusEl.className = 'alert alert-warning';
-      statusEl.textContent = 'Image sync could not continue because TASS blocked browser cross-origin requests (CORS). Students were enrolled successfully; you can continue without images.';
+      statusEl.textContent = 'Image sync could not continue because image proxy requests failed. Students were enrolled successfully; you can continue without images.';
       return;
     }
 
