@@ -118,3 +118,13 @@
 #deskWidth {
   width: 140px;
 }
+
+
+.seating-canvas.photos-hidden .seat-card .avatar {
+  display: none;
+}
+
+.seating-canvas.photos-hidden .seat-card-main {
+  margin-bottom: 0;
+  min-height: 0;
+}
