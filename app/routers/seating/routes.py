@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Body
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -40,6 +42,44 @@ def _ensure_layout_table(session: Session) -> None:
     SeatingLayout.__table__.create(bind=session.get_bind(), checkfirst=True)
 
 
+def _is_absolute_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return bool(parsed.scheme and parsed.netloc)
+
+
+def _normalize_avatar_path(value: str) -> str:
+    """
+    Convert stored avatar values into a browser-safe URL path.
+    Handles plain relative paths (e.g. "static/img/stds/123.jpg") by
+    normalizing them to root-relative URLs ("/static/img/stds/123.jpg").
+    """
+    avatar = (value or "").strip()
+    if not avatar:
+        return ""
+    if avatar.startswith("/") or _is_absolute_url(avatar):
+        return avatar
+    return f"/{avatar}"
+
+
+def _seating_avatar_url(request: Request, user: User) -> str:
+    """
+    Pick the best available avatar URL for seating cards.
+    Priority: explicit user avatar -> student_code photo -> default image.
+    """
+    normalized_avatar = _normalize_avatar_path(user.avatar or "")
+    if normalized_avatar:
+        return normalized_avatar
+
+    student_code = "".join(ch for ch in (user.student_code or "") if ch.isalnum())
+    if student_code:
+        student_image_rel = f"img/stds/{student_code}.jpg"
+        student_image_abs = Path("app/static") / student_image_rel
+        if student_image_abs.exists():
+            return str(request.url_for("static", path=student_image_rel))
+
+    return str(request.url_for("static", path="img/default_user.png"))
+
+
 @router.get("/{course_id}/seating", response_class=HTMLResponse, name="seating.seating_view")
 def seating_view(
     course_id: int,
@@ -64,6 +104,7 @@ def seating_view(
         .order_by(SeatingLayout.name.asc())
         .all()
     )
+    avatar_map = {u.id: _seating_avatar_url(request, u) for u in users}
 
     return render_template(
         "courses/seating.html",
@@ -74,6 +115,7 @@ def seating_view(
             "pos_map": pos_map,
             "totals": totals,
             "layouts": layouts,
+            "avatar_map": avatar_map,
             "current_user": current_user,
         },
     )
