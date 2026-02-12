@@ -35,17 +35,17 @@
 
 /* small circular avatar */
 .seat-card .avatar {
-  width: var(--seating-avatar-size);
-  height: var(--seating-avatar-size);
+  /*width: var(--seating-avatar-size);*/
+  /*height: var(--seating-avatar-size);*/
   object-fit: cover;
 }
 
 /* tidy name truncation */
 .seat-card .name {
-  max-width: var(--seating-name-max-width);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /*max-width: var(--seating-name-max-width);*/
+  /*white-space: nowrap;*/
+  /*overflow: hidden;*/
+  /*text-overflow: ellipsis;*/
 }
 
 /* extra-small buttons for lock and +/- */
@@ -64,12 +64,12 @@
 
 /* Name pill defaults and states */
 .seat-card .name {
-  max-width: var(--seating-name-max-width);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /*max-width: var(--seating-name-max-width);*/
+  /*white-space: nowrap;*/
+  /*overflow: hidden;*/
+  /*text-overflow: ellipsis;*/
   padding: .1rem .35rem;
-  border-radius: 999px;
+  /*border-radius: 999px;*/
   background: #f1f3f5;
 }
 
