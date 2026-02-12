@@ -62,7 +62,7 @@
 
             <div class="seat-card-main d-flex align-items-center gap-2">
                 <img
-                        src="{{ (u.avatar|default('', true)) or url_for('static', filename='img/default_user.png') }}"
+                        src="{{ avatar_map.get(u.id, url_for('static', filename='img/default_user.png')) }}"
                         class="avatar rounded-circle"
                         alt="avatar"
                         onerror="this.onerror=null;this.src='{{ url_for('static', filename='img/default_user.png') }}';"
