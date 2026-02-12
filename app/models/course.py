@@ -14,6 +14,7 @@ class Course(db.Model):
     name = db.Column(db.String(200), nullable=False)
     semester = db.Column(db.String(20), nullable=False)  # "S1" | "S2" | "FULL"
     year = db.Column(db.Integer, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     students = db.relationship("User", secondary=Enrollment, backref="courses", lazy="dynamic")
