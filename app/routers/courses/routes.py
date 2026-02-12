@@ -6,6 +6,7 @@ from typing import Optional
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.utils.cell import coordinate_to_tuple
 from PIL import Image
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -58,35 +59,45 @@ def _extract_tass_row_images(content: bytes) -> dict[int, bytes]:
     Only column A images are considered (new TASS export format).
     """
     workbook = load_workbook(io.BytesIO(content), data_only=True)
-    sheet = workbook.active
+    try:
+        sheet = workbook.active
 
-    row_to_image: dict[int, bytes] = {}
-    for image in getattr(sheet, "_images", []):
-        anchor_from = getattr(getattr(image, "anchor", None), "_from", None)
-        if anchor_from is None:
-            continue
+        row_to_image: dict[int, bytes] = {}
+        for image in getattr(sheet, "_images", []):
+            anchor = getattr(image, "anchor", None)
 
-        # openpyxl anchor coordinates are 0-based.
-        if int(anchor_from.col) != 0:
-            continue
+            # Most XLSX images use OneCellAnchor/TwoCellAnchor with a 0-based marker.
+            anchor_from = getattr(anchor, "_from", None)
+            if anchor_from is not None:
+                col_index = int(anchor_from.col) + 1
+                row_index = int(anchor_from.row) + 1
+            # Some XLSX writers serialize image anchors as coordinates, e.g. "A4".
+            elif isinstance(anchor, str):
+                row_index, col_index = coordinate_to_tuple(anchor)
+            else:
+                continue
 
-        row_index = int(anchor_from.row) + 1
+            # Only process first-column photos from TASS export format.
+            if col_index != 1:
+                continue
 
-        data = None
-        try:
-            data = image._data()
-        except Exception:
-            image_ref = getattr(image, "ref", None)
-            if hasattr(image_ref, "read"):
-                try:
-                    data = image_ref.read()
-                except Exception:
-                    data = None
+            data = None
+            try:
+                data = image._data()
+            except Exception:
+                image_ref = getattr(image, "ref", None)
+                if hasattr(image_ref, "read"):
+                    try:
+                        data = image_ref.read()
+                    except Exception:
+                        data = None
 
-        if data:
-            row_to_image[row_index] = data
+            if data:
+                row_to_image[row_index] = data
 
-    return row_to_image
+        return row_to_image
+    finally:
+        workbook.close()
 
 
 def _save_student_photo(student_code: str, image_bytes: bytes) -> str | None:
