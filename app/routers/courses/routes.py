@@ -7,8 +7,9 @@ from typing import Optional
 import pandas as pd
 from openpyxl import load_workbook
 from PIL import Image
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import case
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db, require_user, AnonymousUser
@@ -110,11 +111,33 @@ def _save_student_photo(student_code: str, image_bytes: bytes) -> str | None:
 @router.get("/", response_class=HTMLResponse, name="courses.list_courses")
 def list_courses(
     request: Request,
+    show_all: bool = Query(False),
     current_user: User | AnonymousUser = Depends(require_user),
     session: Session = Depends(get_db),
 ):
-    courses = session.query(Course).order_by(Course.year.desc(), Course.semester, Course.name).all()
-    return render_template("courses/list.html", {"request": request, "courses": courses, "current_user": current_user})
+    courses_query = session.query(Course)
+    if not show_all:
+        courses_query = courses_query.filter(Course.is_active.is_(True))
+
+    courses = (
+        courses_query
+        .order_by(
+            case((Course.is_active.is_(True), 0), else_=1),
+            Course.year.desc(),
+            Course.semester,
+            Course.name,
+        )
+        .all()
+    )
+    return render_template(
+        "courses/list.html",
+        {
+            "request": request,
+            "courses": courses,
+            "show_all": show_all,
+            "current_user": current_user,
+        },
+    )
 
 @router.get("/create", response_class=HTMLResponse, name="courses.create_course")
 def create_course_form(
@@ -288,6 +311,29 @@ async def create_course_action(
         "success",
     )
 
+    return RedirectResponse("/courses/", status_code=303)
+
+
+
+
+@router.post("/{course_id}/deactivate", name="courses.deactivate")
+def deactivate_course(
+    course_id: int,
+    request: Request,
+    current_user: User | AnonymousUser = Depends(require_user),
+    session: Session = Depends(get_db),
+):
+    course = session.get(Course, course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    if not course.is_active:
+        flash(request, f"{course.display_name} is already inactive.", "info")
+        return RedirectResponse("/courses/?show_all=1", status_code=303)
+
+    course.is_active = False
+    session.commit()
+    flash(request, f"{course.display_name} marked as inactive.", "success")
     return RedirectResponse("/courses/", status_code=303)
 
 
