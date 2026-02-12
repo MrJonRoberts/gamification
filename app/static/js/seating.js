@@ -12,6 +12,33 @@
     const layoutSelect = document.getElementById('layoutSelect');
     const layoutNameInput = document.getElementById('layoutName');
 
+
+    const photoToggleBtn = document.getElementById('togglePhotos');
+    const photoStorageKey = `seating-show-photos-${cfg.courseId || 'default'}`;
+
+    function setPhotosVisible(visible) {
+        const showPhotos = !!visible;
+        canvas.classList.toggle('photos-hidden', !showPhotos);
+        if (photoToggleBtn) {
+            photoToggleBtn.setAttribute('aria-pressed', String(showPhotos));
+            photoToggleBtn.textContent = showPhotos ? 'Hide photos' : 'Show photos';
+        }
+        try {
+            localStorage.setItem(photoStorageKey, showPhotos ? '1' : '0');
+        } catch (err) {
+            console.debug('Unable to persist photo visibility', err);
+        }
+    }
+
+    function readPhotosVisible() {
+        try {
+            return localStorage.getItem(photoStorageKey) !== '0';
+        } catch (err) {
+            console.debug('Unable to read photo visibility', err);
+            return true;
+        }
+    }
+
     let drag = null;
 
     const dimensionInputs = {
@@ -300,6 +327,11 @@
     document.getElementById('lockAll')?.addEventListener('click', () => bulkLock(true));
     document.getElementById('unlockAll')?.addEventListener('click', () => bulkLock(false));
 
+    photoToggleBtn?.addEventListener('click', () => {
+        const currentlyVisible = !canvas.classList.contains('photos-hidden');
+        setPhotosVisible(!currentlyVisible);
+    });
+
     document.getElementById('resetLayout')?.addEventListener('click', () => {
         document.querySelectorAll('.seat-card').forEach((card, idx) => {
             card.style.left = `${idx * 16}px`;
@@ -341,6 +373,8 @@
 
     document.getElementById('saveLayout')?.addEventListener('click', handleSaveLayout);
     document.getElementById('loadLayout')?.addEventListener('click', handleLoadLayout);
+
+    setPhotosVisible(readPhotosVisible());
 
     refreshLayouts();
 })();
