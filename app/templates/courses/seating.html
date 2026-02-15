@@ -2,6 +2,7 @@
 {% block title %}Seating Plan — {{ course.name }}{% endblock %}
 {% block head %}
 <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/seating.css') }}">
 {% endblock %}
 {% block content %}
 
@@ -92,7 +93,7 @@
             <button id="loadLayout" class="btn btn-sm btn-outline-primary">Load selected</button>
 
         </div>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/seating.css') }}">
+
 <script>
     window.SEATING_CONFIG = {
         courseId: {{ course.id }},
